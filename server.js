@@ -22,7 +22,7 @@ requiredEnvVars.forEach(varName => {
 
 // ==================== MIDDLEWARE ====================
 app.use(cors({
-    origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000'],
+    origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000','https://istembcet-asc26.vercel.app',],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
