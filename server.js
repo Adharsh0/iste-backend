@@ -22,12 +22,15 @@ requiredEnvVars.forEach(varName => {
 
 // ==================== MIDDLEWARE ====================
 app.use(cors({
-    origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000','https://istembcet-asc26.vercel.app',],
+    origin: [
+        'https://istembcet-asc26.vercel.app',  // Your Vercel frontend
+        'http://localhost:5173',
+        'http://localhost:3000'
+    ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
