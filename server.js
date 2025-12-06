@@ -205,6 +205,7 @@ app.get('/', (req, res) => {
         endpoints: {
             public: {
                 register: 'POST /api/register',
+                checkEmail: 'POST /api/check-email',
                 health: 'GET /api/health',
                 checkStatus: 'GET /api/check-status/:transactionId'
             },
@@ -232,6 +233,63 @@ app.get('/api/health', (req, res) => {
         memory: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
         timestamp: new Date().toISOString()
     });
+});
+
+// ✅ NEW ENDPOINT: Check if email already exists
+app.post('/api/check-email', async (req, res) => {
+    try {
+        const { email } = req.body;
+        
+        console.log('📧 Checking email:', email);
+        
+        if (!email) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Email is required',
+                exists: false
+            });
+        }
+
+        // Clean and validate email
+        const cleanEmail = email.toLowerCase().trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        
+        if (!emailRegex.test(cleanEmail)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Invalid email format',
+                exists: false
+            });
+        }
+
+        // Check if email exists in database
+        const existingRegistration = await Registration.findOne({ 
+            email: cleanEmail 
+        });
+
+        const exists = !!existingRegistration;
+        
+        console.log(`📊 Email ${cleanEmail} exists: ${exists}`);
+        
+        return res.json({
+            success: true,
+            exists: exists,
+            message: exists ? 'Email already registered' : 'Email available',
+            data: exists ? {
+                id: existingRegistration._id,
+                fullName: existingRegistration.fullName,
+                status: existingRegistration.registrationStatus
+            } : null
+        });
+
+    } catch (error) {
+        console.error('❌ Error checking email:', error.message);
+        return res.status(500).json({ 
+            success: false, 
+            message: 'Server error checking email',
+            exists: false
+        });
+    }
 });
 
 // Check registration status by transaction ID
@@ -270,7 +328,7 @@ app.get('/api/check-status/:transactionId', async (req, res) => {
     }
 });
 
-// Register endpoint
+// Register endpoint with duplicate email check
 app.post('/api/register', async (req, res) => {
     try {
         console.log('📝 Registration request received');
@@ -307,10 +365,42 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
+        // Clean and validate email
+        const cleanEmail = email.toLowerCase().trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        
+        if (!emailRegex.test(cleanEmail)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid email format'
+            });
+        }
+
+        // Double-check for duplicate email (safety check)
+        const existingEmail = await Registration.findOne({ email: cleanEmail });
+        if (existingEmail) {
+            return res.status(400).json({
+                success: false,
+                message: 'This email is already registered. Please use a different email.'
+            });
+        }
+
+        // Check for duplicate transaction ID
+        const existingTransaction = await Registration.findOne({ 
+            transactionId: transactionId.trim() 
+        });
+        
+        if (existingTransaction) {
+            return res.status(400).json({
+                success: false,
+                message: 'This transaction ID is already used. Please verify your payment.'
+            });
+        }
+
         // Create new registration
         const registration = new Registration({
             fullName: fullName.trim(),
-            email: email.toLowerCase().trim(),
+            email: cleanEmail,
             phone: phone.trim(),
             college: college.trim(),
             department: department.trim(),
@@ -327,6 +417,8 @@ app.post('/api/register', async (req, res) => {
         await registration.save();
 
         console.log(`✅ Registration saved: ${registration._id}`);
+        console.log(`📧 Email: ${cleanEmail}`);
+        console.log(`💰 Amount: ${registration.totalAmount}`);
         console.log(`📋 Status: ${registration.registrationStatus}`);
 
         res.status(201).json({
@@ -334,6 +426,7 @@ app.post('/api/register', async (req, res) => {
             message: 'Registration submitted successfully! Your registration is pending admin approval.',
             data: {
                 id: registration._id,
+                registrationId: `ISTE${registration._id.toString().slice(-8).toUpperCase()}`,
                 fullName: registration.fullName,
                 email: registration.email,
                 transactionId: registration.transactionId,
@@ -641,6 +734,18 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
             }
         ]);
 
+        // Add email stats
+        const emailStats = await Registration.aggregate([
+            {
+                $group: {
+                    _id: { $substr: ["$email", { $indexOfBytes: ["$email", "@"] }, 100] },
+                    count: { $sum: 1 }
+                }
+            },
+            { $sort: { count: -1 } },
+            { $limit: 10 }
+        ]);
+
         res.json({
             success: true,
             data: {
@@ -650,6 +755,7 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
                 rejectedRegistrations,
                 totalRevenue: totalRevenue[0]?.total || 0,
                 stayPreferenceStats: stayStats,
+                emailDomainStats: emailStats,
                 lastUpdated: new Date().toISOString()
             }
         });
@@ -694,6 +800,7 @@ app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔐 Admin login: POST http://localhost:${PORT}/api/admin/login`);
+    console.log(`📧 Email check: POST http://localhost:${PORT}/api/check-email`);
     console.log(`📊 Health check: GET http://localhost:${PORT}/api/health`);
     console.log('========================================');
 });
