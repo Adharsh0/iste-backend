@@ -25,7 +25,10 @@ app.use(cors({
     origin: [
         'https://istembcet-asc26.vercel.app',  // Your Vercel frontend
         'http://localhost:5173',
-        'http://localhost:3000'
+        'http://localhost:3000',
+        'https://www.istembcet-nexora.in',
+        'https://istembcet-nexora.in'
+
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
