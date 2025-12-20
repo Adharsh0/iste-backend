@@ -62,6 +62,7 @@ mongoose.connect(MONGODB_URI)
 
 // ==================== MODELS ====================
 const registrationSchema = new mongoose.Schema({
+    // Personal Information
     fullName: { 
         type: String, 
         required: [true, 'Full name is required'],
@@ -81,6 +82,8 @@ const registrationSchema = new mongoose.Schema({
         required: [true, 'Phone number is required'],
         trim: true
     },
+    
+    // Academic Information
     institution: {
         type: String,
         required: [true, 'Institution type is required'],
@@ -88,8 +91,7 @@ const registrationSchema = new mongoose.Schema({
             values: ['Engineering', 'Polytechnic'],
             message: 'Institution must be either Engineering or Polytechnic'
         },
-        trim: true,
-        default: 'Engineering'
+        trim: true
     },
     college: { 
         type: String, 
@@ -106,6 +108,8 @@ const registrationSchema = new mongoose.Schema({
         required: [true, 'Academic year is required'],
         enum: ['First', 'Second', 'Third', 'Fourth', 'Final']
     },
+    
+    // ISTE Information
     isIsteMember: { 
         type: String, 
         required: [true, 'ISTE membership status is required'],
@@ -116,6 +120,8 @@ const registrationSchema = new mongoose.Schema({
         default: '',
         trim: true
     },
+    
+    // Accommodation Information
     stayPreference: { 
         type: String, 
         required: [true, 'Stay preference is required'],
@@ -128,10 +134,10 @@ const registrationSchema = new mongoose.Schema({
         },
         min: [1, 'Stay days must be at least 1'],
         max: [10, 'Stay days cannot exceed 10'],
-        default: function() {
-            return this.stayPreference === 'With Stay' ? 1 : 0;
-        }
+        default: 0
     },
+    
+    // Payment Information
     totalAmount: { 
         type: Number, 
         required: [true, 'Total amount is required'],
@@ -148,6 +154,8 @@ const registrationSchema = new mongoose.Schema({
         default: 'verified', 
         enum: ['verified', 'failed', 'pending']
     },
+    
+    // Registration Status
     registrationStatus: {
         type: String,
         default: 'pending',
@@ -157,6 +165,8 @@ const registrationSchema = new mongoose.Schema({
         type: Date, 
         default: Date.now 
     },
+    
+    // Admin Actions
     approvedBy: { 
         type: String, 
         default: '' 
@@ -179,12 +189,10 @@ const registrationSchema = new mongoose.Schema({
 const Registration = mongoose.model('Registration', registrationSchema);
 
 // ==================== DATABASE MIGRATION ====================
-// Function to migrate existing documents
 const migrateExistingDocuments = async () => {
     try {
         console.log('🔍 Checking for documents that need migration...');
         
-        // Find documents missing institution or stayDays fields
         const docsToUpdate = await Registration.find({
             $or: [
                 { institution: { $exists: false } },
@@ -199,26 +207,20 @@ const migrateExistingDocuments = async () => {
         
         console.log(`📋 Found ${docsToUpdate.length} documents needing migration`);
         
-        // Update each document
         let updatedCount = 0;
         for (const doc of docsToUpdate) {
             const updates = {};
             
-            // Add institution if missing (default to Engineering)
             if (!doc.institution) {
                 updates.institution = 'Engineering';
-                console.log(`   📝 Document ${doc._id}: Adding institution = "Engineering"`);
             }
             
-            // Add stayDays if missing
-            if (!doc.stayDays && doc.stayDays !== 0) {
+            if (doc.stayDays === undefined || doc.stayDays === null) {
                 updates.stayDays = doc.stayPreference === 'With Stay' ? 1 : 0;
-                console.log(`   📝 Document ${doc._id}: Adding stayDays = ${updates.stayDays} (stayPreference: ${doc.stayPreference})`);
             }
             
-            // Only update if we have changes
             if (Object.keys(updates).length > 0) {
-                await Registration.findByIdAndUpdate(doc._id, { $set: updates });
+                await Registration.updateOne({ _id: doc._id }, { $set: updates });
                 updatedCount++;
             }
         }
@@ -233,12 +235,7 @@ const migrateExistingDocuments = async () => {
 // Run migration when connected
 mongoose.connection.on('connected', async () => {
     console.log('📡 MongoDB connection established');
-    
-    // Run migration for existing documents
     await migrateExistingDocuments();
-    
-    // Set up periodic migration check (every 5 minutes)
-    setInterval(migrateExistingDocuments, 5 * 60 * 1000);
 });
 
 mongoose.connection.on('error', (err) => {
@@ -318,8 +315,6 @@ app.post('/api/check-email', async (req, res) => {
     try {
         const { email } = req.body;
         
-        console.log('📧 Checking email:', email);
-        
         if (!email) {
             return res.status(400).json({ 
                 success: false, 
@@ -344,8 +339,6 @@ app.post('/api/check-email', async (req, res) => {
         });
 
         const exists = !!existingRegistration;
-        
-        console.log(`📊 Email ${cleanEmail} exists: ${exists}`);
         
         return res.json({
             success: true,
@@ -405,9 +398,8 @@ app.get('/api/check-status/:transactionId', async (req, res) => {
 
 app.post('/api/register', async (req, res) => {
     try {
-        console.log('📝 Registration request received');
-        console.log('📦 Request body:', req.body);
-
+        console.log('📝 New registration request');
+        
         const {
             fullName,
             email,
@@ -424,15 +416,6 @@ app.post('/api/register', async (req, res) => {
             transactionId
         } = req.body;
 
-        // Add detailed logging for critical fields
-        console.log('🔍 Critical field check:', {
-            institution: institution,
-            institutionType: typeof institution,
-            stayDays: stayDays,
-            stayDaysType: typeof stayDays,
-            stayPreference: stayPreference
-        });
-
         // Validate required fields
         const requiredFields = {
             fullName, email, phone, institution, college, department, year, 
@@ -448,7 +431,6 @@ app.post('/api/register', async (req, res) => {
             .map(([key]) => key);
 
         if (missingFields.length > 0) {
-            console.log('❌ Missing fields:', missingFields);
             return res.status(400).json({
                 success: false,
                 message: 'All required fields must be provided',
@@ -456,7 +438,7 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
-        // Validate stayDays if stayPreference is "With Stay"
+        // Validate stayDays
         let finalStayDays = 0;
         if (stayPreference === 'With Stay') {
             if (!stayDays || stayDays < 1) {
@@ -484,6 +466,7 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
+        // Check for duplicates
         const existingEmail = await Registration.findOne({ email: cleanEmail });
         if (existingEmail) {
             return res.status(400).json({
@@ -503,51 +486,28 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
-        // Create registration object with ALL fields
-        const registrationData = {
+        // Create and save registration
+        const registration = new Registration({
             fullName: fullName.trim(),
             email: cleanEmail,
             phone: phone.trim(),
             institution: institution.trim(),
             college: college.trim(),
             department: department.trim(),
-            year: year,
-            isIsteMember: isIsteMember,
+            year,
+            isIsteMember,
             isteRegistrationNumber: isteRegistrationNumber ? isteRegistrationNumber.trim() : '',
-            stayPreference: stayPreference,
+            stayPreference,
             stayDays: finalStayDays,
             totalAmount: Number(totalAmount),
             transactionId: transactionId.trim(),
             paymentStatus: 'verified',
             registrationStatus: 'pending'
-        };
-
-        console.log('📄 Creating registration with data:', registrationData);
-
-        const registration = new Registration(registrationData);
-
-        // Validate the document before saving
-        const validationError = registration.validateSync();
-        if (validationError) {
-            console.log('❌ Validation error:', validationError);
-            const errors = Object.values(validationError.errors).map(err => err.message);
-            return res.status(400).json({
-                success: false,
-                message: 'Validation failed',
-                errors
-            });
-        }
+        });
 
         await registration.save();
 
-        console.log('✅ Registration saved successfully!');
-        console.log('📊 Saved data:', {
-            id: registration._id,
-            institution: registration.institution,
-            stayDays: registration.stayDays,
-            stayPreference: registration.stayPreference,
-            totalAmount: registration.totalAmount
-        });
+        console.log(`✅ Registration saved: ${registration._id}`);
 
         res.status(201).json({
             success: true,
@@ -575,7 +535,6 @@ app.post('/api/register', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Registration error:', error.message);
-        console.error('❌ Full error stack:', error.stack);
 
         if (error.code === 11000) {
             const duplicateField = error.keyValue ? Object.keys(error.keyValue)[0] : 'field';
@@ -698,22 +657,13 @@ app.get('/api/admin/registrations', authenticateToken, async (req, res) => {
             Registration.countDocuments(query)
         ]);
 
-        // Ensure all fields have values, even if missing in DB
-        const registrationsWithDefaults = registrations.map(reg => {
-            return {
-                institution: reg.institution || 'Engineering',
-                stayDays: reg.stayDays || (reg.stayPreference === 'With Stay' ? 1 : 0),
-                ...reg
-            };
-        });
-
         res.json({
             success: true,
             count: registrations.length,
             total,
             page: parseInt(page),
             totalPages: Math.ceil(total / parseInt(limit)),
-            data: registrationsWithDefaults
+            data: registrations
         });
     } catch (error) {
         console.error('Get registrations error:', error);
@@ -736,16 +686,9 @@ app.get('/api/admin/registration/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Ensure all fields have values
-        const registrationWithDefaults = {
-            institution: registration.institution || 'Engineering',
-            stayDays: registration.stayDays || (registration.stayPreference === 'With Stay' ? 1 : 0),
-            ...registration
-        };
-
         res.json({
             success: true,
-            data: registrationWithDefaults
+            data: registration
         });
     } catch (error) {
         console.error('Get registration error:', error);
@@ -935,28 +878,6 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
     }
 });
 
-// ==================== DEBUG ENDPOINT ====================
-app.get('/api/debug/registration/:id', async (req, res) => {
-    try {
-        const registration = await Registration.findById(req.params.id);
-        if (!registration) {
-            return res.status(404).json({
-                success: false,
-                message: 'Registration not found'
-            });
-        }
-        res.json({
-            success: true,
-            data: registration
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
-        });
-    }
-});
-
 // ==================== ERROR HANDLING ====================
 
 app.use('*', (req, res) => {
@@ -987,6 +908,5 @@ app.listen(PORT, () => {
     console.log(`🔐 Admin login: POST http://localhost:${PORT}/api/admin/login`);
     console.log(`📧 Email check: POST http://localhost:${PORT}/api/check-email`);
     console.log(`📊 Health check: GET http://localhost:${PORT}/api/health`);
-    console.log(`🐛 Debug endpoint: GET http://localhost:${PORT}/api/debug/registration/:id`);
     console.log('========================================');
 });
