@@ -129,12 +129,9 @@ const registrationSchema = new mongoose.Schema({
     },
     stayDays: {
         type: Number,
-        required: function() {
-            return this.stayPreference === 'With Stay';
-        },
-        min: [1, 'Stay days must be at least 1'],
-        max: [10, 'Stay days cannot exceed 10'],
-        default: 0
+        default: 0,
+        min: [0, 'Stay days cannot be negative'],
+        max: [10, 'Stay days cannot exceed 10']
     },
     
     // Payment Information
@@ -451,7 +448,7 @@ app.post('/api/register', async (req, res) => {
             finalDepartment = otherDepartment.trim();
         }
 
-        // Validate stayDays
+        // Validate stayDays based on stayPreference
         let finalStayDays = 0;
         if (stayPreference === 'With Stay') {
             if (!stayDays || stayDays < 1) {
@@ -467,6 +464,9 @@ app.post('/api/register', async (req, res) => {
                 });
             }
             finalStayDays = Number(stayDays);
+        } else {
+            // For "Without Stay", explicitly set to 0
+            finalStayDays = 0;
         }
 
         const cleanEmail = email.toLowerCase().trim();
