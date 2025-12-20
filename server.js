@@ -407,6 +407,7 @@ app.post('/api/register', async (req, res) => {
             institution,
             college,
             department,
+            otherDepartment,
             year,
             isIsteMember,
             isteRegistrationNumber,
@@ -436,6 +437,18 @@ app.post('/api/register', async (req, res) => {
                 message: 'All required fields must be provided',
                 missingFields
             });
+        }
+
+        // Validate department - handle "Other" option
+        let finalDepartment = department.trim();
+        if (department === 'Other') {
+            if (!otherDepartment || otherDepartment.trim() === '') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Please specify your department name when selecting "Other"'
+                });
+            }
+            finalDepartment = otherDepartment.trim();
         }
 
         // Validate stayDays
@@ -493,7 +506,7 @@ app.post('/api/register', async (req, res) => {
             phone: phone.trim(),
             institution: institution.trim(),
             college: college.trim(),
-            department: department.trim(),
+            department: finalDepartment, // Use the processed department
             year,
             isIsteMember,
             isteRegistrationNumber: isteRegistrationNumber ? isteRegistrationNumber.trim() : '',
@@ -642,7 +655,8 @@ app.get('/api/admin/registrations', authenticateToken, async (req, res) => {
                 { fullName: searchRegex },
                 { email: searchRegex },
                 { transactionId: searchRegex },
-                { college: searchRegex }
+                { college: searchRegex },
+                { department: searchRegex }
             ];
         }
 
@@ -842,6 +856,17 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
             }
         ]);
 
+        const departmentStats = await Registration.aggregate([
+            {
+                $group: {
+                    _id: "$department",
+                    count: { $sum: 1 }
+                }
+            },
+            { $sort: { count: -1 } },
+            { $limit: 20 }
+        ]);
+
         const emailStats = await Registration.aggregate([
             {
                 $group: {
@@ -863,6 +888,7 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
                 totalRevenue: totalRevenue[0]?.total || 0,
                 stayPreferenceStats: stayStats,
                 institutionStats: institutionStats,
+                departmentStats: departmentStats,
                 emailDomainStats: emailStats,
                 lastUpdated: new Date().toISOString()
             }
