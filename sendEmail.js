@@ -1,4 +1,3 @@
-// sendEmail.js
 const nodemailer = require("nodemailer");
 
 // Create transporter with improved configuration
@@ -8,13 +7,9 @@ const transporter = nodemailer.createTransport({
     user: process.env.ADMIN_EMAIL,
     pass: process.env.ADMIN_EMAIL_PASSWORD,
   },
-  // Additional settings for better reliability
   tls: {
     rejectUnauthorized: false
-  },
-  pool: true, // Use pooled connections
-  maxConnections: 5,
-  maxMessages: 100
+  }
 });
 
 // Verify transporter on startup
@@ -37,13 +32,7 @@ const sendEmail = async ({ to, subject, html, text }) => {
       to,
       subject,
       html,
-      text: text || subject, // Fallback to subject if text not provided
-      // Optional headers
-      headers: {
-        'X-Priority': '1',
-        'X-MSMail-Priority': 'High',
-        'Importance': 'high'
-      }
+      text: text || subject,
     };
 
     const info = await transporter.sendMail(mailOptions);
@@ -52,10 +41,8 @@ const sendEmail = async ({ to, subject, html, text }) => {
   } catch (error) {
     console.error("❌ Email sending failed:", error.message);
     
-    // Enhanced error logging
     if (error.code === 'EAUTH') {
       console.error("⚠️ Authentication failed. Check email credentials in .env file");
-      console.error("⚠️ Make sure you've enabled 2FA and created an App Password in Google");
     } else if (error.code === 'EENVELOPE') {
       console.error("⚠️ Invalid recipient email address");
     }
@@ -64,12 +51,11 @@ const sendEmail = async ({ to, subject, html, text }) => {
   }
 };
 
-// Email template functions for reuse
-const emailTemplates = {
-  approval: (userData) => ({
+// Email template generators (FIXED: These are functions, not objects)
+const generateApprovalEmail = (userData) => {
+  return {
     subject: '🎉 Registration Approved - ISTE INDUSTRY 5.0',
-    html: `
-<!DOCTYPE html>
+    html: `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -126,36 +112,6 @@ const emailTemplates = {
             margin: 25px 0; 
             border: 1px solid #e9ecef;
         }
-        .detail-row { 
-            display: flex; 
-            justify-content: space-between; 
-            margin-bottom: 12px; 
-            padding-bottom: 12px; 
-            border-bottom: 1px solid #eee;
-        }
-        .detail-row:last-child { 
-            border-bottom: none; 
-            margin-bottom: 0; 
-            padding-bottom: 0;
-        }
-        .detail-label { 
-            color: #666; 
-            font-weight: 500;
-        }
-        .detail-value { 
-            color: #333; 
-            font-weight: 600;
-        }
-        .badge { 
-            display: inline-block; 
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
-            color: white; 
-            padding: 8px 20px; 
-            border-radius: 25px; 
-            font-size: 14px; 
-            margin: 15px 0; 
-            font-weight: 600;
-        }
         .footer { 
             text-align: center; 
             margin-top: 40px; 
@@ -164,38 +120,9 @@ const emailTemplates = {
             border-top: 1px solid #eee; 
             padding-top: 20px;
         }
-        .contact-box { 
-            background: #e8f4ff; 
-            padding: 20px; 
-            border-radius: 8px; 
-            margin: 25px 0; 
-            border-left: 4px solid #2196F3;
-        }
-        .contact-box h4 { 
-            margin-top: 0; 
-            color: #0d47a1;
-        }
-        .highlight { 
-            background-color: #fffde7; 
-            padding: 12px; 
-            border-radius: 6px; 
-            margin: 15px 0; 
-            border-left: 4px solid #ffc107;
-        }
-        .button { 
-            display: inline-block; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-            color: white; 
-            padding: 12px 30px; 
-            border-radius: 5px; 
-            text-decoration: none; 
-            font-weight: 600; 
-            margin: 15px 0;
-        }
         @media (max-width: 600px) {
             .content { padding: 25px 20px; }
             .header { padding: 30px 20px; }
-            .detail-row { flex-direction: column; }
         }
     </style>
 </head>
@@ -207,7 +134,7 @@ const emailTemplates = {
         </div>
         
         <div class="content">
-            <p>Dear <strong>${userData.fullName}</strong>,</p>
+            <p>Dear <strong>${userData.fullName || 'Student'}</strong>,</p>
             
             <div class="status-approved">
                 🎉 Congratulations! Your registration has been <strong>APPROVED</strong>
@@ -217,75 +144,16 @@ const emailTemplates = {
             
             <div class="details-card">
                 <h3 style="margin-top: 0; color: #333;">Registration Details:</h3>
-                <div class="detail-row">
-                    <span class="detail-label">Registration ID:</span>
-                    <span class="detail-value">ISTE${userData._id ? userData._id.toString().slice(-8).toUpperCase() : ''}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Name:</span>
-                    <span class="detail-value">${userData.fullName}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">College:</span>
-                    <span class="detail-value">${userData.college}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Department:</span>
-                    <span class="detail-value">${userData.department}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Year:</span>
-                    <span class="detail-value">${userData.year}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Institution Type:</span>
-                    <span class="detail-value">${userData.institution}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Accommodation:</span>
-                    <span class="detail-value">${userData.stayPreference} ${userData.stayPreference === 'With Stay' ? `(${userData.stayDays} day${userData.stayDays !== 1 ? 's' : ''})` : ''}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Transaction ID:</span>
-                    <span class="detail-value">${userData.transactionId}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Amount Paid:</span>
-                    <span class="detail-value">₹${userData.totalAmount}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Approved By:</span>
-                    <span class="detail-value">${userData.approvedBy || 'Admin Team'}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Approval Date:</span>
-                    <span class="detail-value">${new Date().toLocaleDateString('en-IN', { 
-                        weekday: 'long',
-                        day: 'numeric', 
-                        month: 'long', 
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: true
-                    })}</span>
-                </div>
+                <p><strong>Name:</strong> ${userData.fullName || ''}</p>
+                <p><strong>College:</strong> ${userData.college || ''}</p>
+                <p><strong>Department:</strong> ${userData.department || ''}</p>
+                <p><strong>Year:</strong> ${userData.year || ''}</p>
+                <p><strong>Transaction ID:</strong> ${userData.transactionId || ''}</p>
             </div>
             
-            <div class="contact-box">
-                <h4>📅 Event Information:</h4>
-                <p><strong>Important:</strong> Please carry your college ID card and a printed copy of this email (or digital copy) for verification at the venue.</p>
-                <p>${userData.stayPreference === 'With Stay' ? 'Your accommodation details will be shared separately via email.' : 'No accommodation has been arranged for you.'}</p>
-            </div>
+            <p><strong>📅 Event Information:</strong> Please carry your college ID card for verification at the venue.</p>
             
-            <div class="highlight">
-                <p><strong>🎫 Your registration is now complete!</strong> We look forward to hosting you at ISTE INDUSTRY 5.0.</p>
-            </div>
-            
-            <div style="text-align: center;">
-                <span class="badge">✓ Registration Confirmed</span>
-            </div>
-            
-            <p>Should you have any questions, feel free to contact us at ${process.env.ADMIN_EMAIL || 'iste.industry5.0@example.com'}</p>
+            <p>Should you have any questions, feel free to contact us.</p>
             
             <p>Best regards,<br>
             <strong>ISTE INDUSTRY 5.0 Team</strong></p>
@@ -297,14 +165,14 @@ const emailTemplates = {
         </div>
     </div>
 </body>
-</html>
-    `
-  }),
+</html>`
+  };
+};
 
-  rejection: (userData) => ({
+const generateRejectionEmail = (userData) => {
+  return {
     subject: '⚠️ Registration Update - ISTE INDUSTRY 5.0',
-    html: `
-<!DOCTYPE html>
+    html: `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -354,54 +222,12 @@ const emailTemplates = {
             text-align: center; 
             border-left: 5px solid #dc3545;
         }
-        .details-card { 
-            background: #f8f9fa; 
-            padding: 25px; 
-            border-radius: 8px; 
-            margin: 25px 0; 
-            border: 1px solid #e9ecef;
-        }
         .reason-box { 
             background: #fff3cd; 
             border-left: 5px solid #ffc107; 
             padding: 20px; 
             margin: 25px 0; 
             border-radius: 8px;
-        }
-        .reason-box h4 { 
-            margin-top: 0; 
-            color: #856404;
-        }
-        .contact-info { 
-            background: #e8f4ff; 
-            padding: 25px; 
-            border-radius: 8px; 
-            margin: 25px 0; 
-            border-left: 5px solid #2196F3;
-        }
-        .contact-info h4 { 
-            margin-top: 0; 
-            color: #0d47a1;
-        }
-        .detail-row { 
-            display: flex; 
-            justify-content: space-between; 
-            margin-bottom: 12px; 
-            padding-bottom: 12px; 
-            border-bottom: 1px solid #eee;
-        }
-        .detail-row:last-child { 
-            border-bottom: none; 
-            margin-bottom: 0; 
-            padding-bottom: 0;
-        }
-        .detail-label { 
-            color: #666; 
-            font-weight: 500;
-        }
-        .detail-value { 
-            color: #333; 
-            font-weight: 600;
         }
         .footer { 
             text-align: center; 
@@ -411,31 +237,9 @@ const emailTemplates = {
             border-top: 1px solid #eee; 
             padding-top: 20px;
         }
-        .refund-note { 
-            background: #f8f9fa; 
-            padding: 15px; 
-            border-radius: 8px; 
-            margin: 20px 0; 
-            border: 1px dashed #dc3545;
-        }
-        .action-buttons { 
-            text-align: center; 
-            margin: 30px 0;
-        }
-        .action-link { 
-            display: inline-block; 
-            background: linear-gradient(135deg, #2196F3 0%, #21CBF3 100%); 
-            color: white; 
-            padding: 12px 30px; 
-            border-radius: 5px; 
-            text-decoration: none; 
-            font-weight: 600; 
-            margin: 10px;
-        }
         @media (max-width: 600px) {
             .content { padding: 25px 20px; }
             .header { padding: 30px 20px; }
-            .detail-row { flex-direction: column; }
         }
     </style>
 </head>
@@ -447,7 +251,7 @@ const emailTemplates = {
         </div>
         
         <div class="content">
-            <p>Dear <strong>${userData.fullName}</strong>,</p>
+            <p>Dear <strong>${userData.fullName || 'Student'}</strong>,</p>
             
             <div class="status-rejected">
                 ⚠️ Your registration requires attention
@@ -455,64 +259,17 @@ const emailTemplates = {
             
             <p>We regret to inform you that your registration for <strong>ISTE INDUSTRY 5.0</strong> could not be approved at this time.</p>
             
-            <div class="details-card">
-                <h3 style="margin-top: 0; color: #333;">Registration Details:</h3>
-                <div class="detail-row">
-                    <span class="detail-label">Name:</span>
-                    <span class="detail-value">${userData.fullName}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">College:</span>
-                    <span class="detail-value">${userData.college}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Transaction ID:</span>
-                    <span class="detail-value">${userData.transactionId}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Amount:</span>
-                    <span class="detail-value">₹${userData.totalAmount}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Registration Date:</span>
-                    <span class="detail-value">${new Date(userData.registrationDate || userData.createdAt).toLocaleDateString('en-IN', { 
-                        day: 'numeric', 
-                        month: 'long', 
-                        year: 'numeric'
-                    })}</span>
-                </div>
-            </div>
-            
             <div class="reason-box">
-                <h4>📝 Reason for Rejection:</h4>
+                <h4 style="margin-top: 0; color: #856404;">Reason for Rejection:</h4>
                 <p style="font-size: 16px; color: #721c24; margin: 15px 0; font-weight: 500;">"${userData.rejectionReason || 'Registration does not meet the required criteria. Please contact us for more information.'}"</p>
             </div>
             
-            <div class="contact-info">
-                <h4>📞 What to do next:</h4>
-                <ol style="padding-left: 20px;">
-                    <li>Carefully review the reason for rejection mentioned above</li>
-                    <li>If you believe there's been a mistake, contact us immediately</li>
-                    <li>Please include your <strong>Transaction ID: ${userData.transactionId}</strong> in all communications</li>
-                    <li>We will review your case and respond within 24-48 hours</li>
-                </ol>
-                
-                <p><strong>Contact Information:</strong></p>
-                <p>📧 Email: ${process.env.ADMIN_EMAIL || 'iste.industry5.0@example.com'}</p>
-            </div>
-            
-            <div class="refund-note">
-                <p><strong>💰 Refund Information:</strong></p>
-                <p>If applicable, any refund will be processed to your original payment method within 7-10 working days from the date of rejection.</p>
-                <p><em>Note: Refund processing time may vary depending on your bank/payment provider.</em></p>
-            </div>
-            
-            <div class="action-buttons">
-                <p>Need immediate assistance? Contact our support team:</p>
-                <a href="mailto:${process.env.ADMIN_EMAIL || 'iste.industry5.0@example.com'}?subject=Query regarding rejected registration - ${userData.transactionId}" class="action-link">
-                    ✉️ Contact Support
-                </a>
-            </div>
+            <p><strong>What to do next:</strong></p>
+            <ul>
+                <li>Review the reason for rejection mentioned above</li>
+                <li>If you believe there's been a mistake, contact us immediately</li>
+                <li>Include your Transaction ID: <strong>${userData.transactionId || ''}</strong> in your query</li>
+            </ul>
             
             <p>We apologize for any inconvenience caused and thank you for your interest in <strong>ISTE INDUSTRY 5.0</strong>.</p>
             
@@ -526,9 +283,13 @@ const emailTemplates = {
         </div>
     </div>
 </body>
-</html>
-    `
-  })
+</html>`
+  };
 };
 
-module.exports = { sendEmail, emailTemplates };
+// Export everything
+module.exports = { 
+  sendEmail, 
+  generateApprovalEmail, 
+  generateRejectionEmail 
+};

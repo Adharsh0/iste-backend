@@ -945,8 +945,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-// Import email utility with templates
-const { sendEmail, emailTemplates } = require('./utils/sendEmail');
+// Import email utility with template generators (FIXED IMPORT)
+const { sendEmail, generateApprovalEmail, generateRejectionEmail } = require('./utils/sendEmail');
 
 const app = express();
 
@@ -1155,8 +1155,6 @@ const registrationSchema = new mongoose.Schema({
 });
 
 // Indexes for better performance
-// REMOVED duplicate index definitions to fix warnings
-// The unique: true in field definitions already creates these indexes
 registrationSchema.index({ registrationStatus: 1 });
 registrationSchema.index({ registrationDate: -1 });
 registrationSchema.index({ institution: 1, registrationStatus: 1 });
@@ -1192,11 +1190,11 @@ const sendApprovalEmail = async (registration) => {
     try {
         console.log(`📧 Attempting to send approval email to: ${registration.email}`);
         
-        const emailTemplate = emailTemplates.approval(registration);
+        // FIXED: Use generateApprovalEmail function
+        const emailTemplate = generateApprovalEmail(registration);
         
         console.log('📧 Email template generated, calling sendEmail...');
         
-        // FIXED: Properly handle sendEmail response
         const emailResult = await sendEmail({
             to: registration.email,
             subject: emailTemplate.subject,
@@ -1234,7 +1232,8 @@ const sendRejectionEmail = async (registration) => {
     try {
         console.log(`📧 Attempting to send rejection email to: ${registration.email}`);
         
-        const emailTemplate = emailTemplates.rejection(registration);
+        // FIXED: Use generateRejectionEmail function
+        const emailTemplate = generateRejectionEmail(registration);
         
         const emailResult = await sendEmail({
             to: registration.email,
@@ -1941,13 +1940,6 @@ app.post('/api/admin/test-email', authenticateToken, async (req, res) => {
     try {
         const { to = process.env.ADMIN_EMAIL, type = 'test' } = req.body;
         
-        if (!req.body || Object.keys(req.body).length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Request body is required for test email'
-            });
-        }
-        
         let testResult;
         
         if (type === 'approval') {
@@ -1967,7 +1959,8 @@ app.post('/api/admin/test-email', authenticateToken, async (req, res) => {
                 registrationDate: new Date()
             };
             
-            const emailTemplate = emailTemplates.approval(testUser);
+            // FIXED: Use generateApprovalEmail function
+            const emailTemplate = generateApprovalEmail(testUser);
             testResult = await sendEmail({
                 to,
                 subject: emailTemplate.subject,
@@ -1986,7 +1979,8 @@ app.post('/api/admin/test-email', authenticateToken, async (req, res) => {
                 createdAt: new Date()
             };
             
-            const emailTemplate = emailTemplates.rejection(testUser);
+            // FIXED: Use generateRejectionEmail function
+            const emailTemplate = generateRejectionEmail(testUser);
             testResult = await sendEmail({
                 to,
                 subject: emailTemplate.subject,
