@@ -1190,8 +1190,13 @@ const authenticateToken = (req, res, next) => {
 // ==================== HELPER FUNCTIONS ====================
 const sendApprovalEmail = async (registration) => {
     try {
+        console.log(`📧 Attempting to send approval email to: ${registration.email}`);
+        
         const emailTemplate = emailTemplates.approval(registration);
         
+        console.log('📧 Email template generated, calling sendEmail...');
+        
+        // FIXED: Properly handle sendEmail response
         const emailResult = await sendEmail({
             to: registration.email,
             subject: emailTemplate.subject,
@@ -1199,7 +1204,10 @@ const sendApprovalEmail = async (registration) => {
             text: `Your registration for ISTE INDUSTRY 5.0 has been approved. Registration ID: ISTE${registration._id.toString().slice(-8).toUpperCase()}`
         });
 
-        if (emailResult.success) {
+        console.log('📧 sendEmail result:', emailResult);
+
+        // FIXED: Check emailResult properly
+        if (emailResult && emailResult.success === true) {
             // Update email tracking in database
             await Registration.findByIdAndUpdate(registration._id, {
                 $set: {
@@ -1211,17 +1219,21 @@ const sendApprovalEmail = async (registration) => {
             console.log(`✅ Approval email sent to ${registration.email}`);
             return true;
         } else {
-            console.error(`❌ Failed to send approval email to ${registration.email}:`, emailResult.error);
+            console.error(`❌ Failed to send approval email to ${registration.email}:`, 
+                         emailResult ? emailResult.error : 'No result returned');
             return false;
         }
     } catch (error) {
-        console.error(`❌ Error sending approval email:`, error.message);
+        console.error(`❌ Error in sendApprovalEmail function:`, error.message);
+        console.error('Full error:', error);
         return false;
     }
 };
 
 const sendRejectionEmail = async (registration) => {
     try {
+        console.log(`📧 Attempting to send rejection email to: ${registration.email}`);
+        
         const emailTemplate = emailTemplates.rejection(registration);
         
         const emailResult = await sendEmail({
@@ -1231,7 +1243,9 @@ const sendRejectionEmail = async (registration) => {
             text: `Your registration for ISTE INDUSTRY 5.0 has been rejected. Reason: ${registration.rejectionReason || 'Not specified'}. Transaction ID: ${registration.transactionId}`
         });
 
-        if (emailResult.success) {
+        console.log('📧 sendEmail result:', emailResult);
+
+        if (emailResult && emailResult.success === true) {
             // Update email tracking in database
             await Registration.findByIdAndUpdate(registration._id, {
                 $set: {
@@ -1243,11 +1257,12 @@ const sendRejectionEmail = async (registration) => {
             console.log(`✅ Rejection email sent to ${registration.email}`);
             return true;
         } else {
-            console.error(`❌ Failed to send rejection email to ${registration.email}:`, emailResult.error);
+            console.error(`❌ Failed to send rejection email to ${registration.email}:`, 
+                         emailResult ? emailResult.error : 'No result returned');
             return false;
         }
     } catch (error) {
-        console.error(`❌ Error sending rejection email:`, error.message);
+        console.error(`❌ Error in sendRejectionEmail function:`, error.message);
         return false;
     }
 };
@@ -1736,7 +1751,7 @@ app.put('/api/admin/registration/:id/approve', authenticateToken, async (req, re
             success: true,
             message: 'Registration approved successfully' + (emailSent ? ' and email sent' : ' (email notification failed)'),
             data: registration,
-            emailSent
+            emailSent: emailSent // Make sure this is included
         });
 
     } catch (error) {
@@ -1793,7 +1808,7 @@ app.put('/api/admin/registration/:id/reject', authenticateToken, async (req, res
             success: true,
             message: 'Registration rejected' + (emailSent ? ' and email sent' : ' (email notification failed)'),
             data: registration,
-            emailSent
+            emailSent: emailSent // Make sure this is included
         });
 
     } catch (error) {
@@ -1926,6 +1941,13 @@ app.post('/api/admin/test-email', authenticateToken, async (req, res) => {
     try {
         const { to = process.env.ADMIN_EMAIL, type = 'test' } = req.body;
         
+        if (!req.body || Object.keys(req.body).length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Request body is required for test email'
+            });
+        }
+        
         let testResult;
         
         if (type === 'approval') {
@@ -1981,8 +2003,8 @@ app.post('/api/admin/test-email', authenticateToken, async (req, res) => {
         }
         
         res.json({
-            success: testResult.success,
-            message: testResult.success ? 'Test email sent successfully' : 'Failed to send test email',
+            success: testResult ? testResult.success : false,
+            message: testResult && testResult.success ? 'Test email sent successfully' : 'Failed to send test email',
             details: testResult
         });
         
@@ -1994,6 +2016,16 @@ app.post('/api/admin/test-email', authenticateToken, async (req, res) => {
             error: error.message
         });
     }
+});
+
+// ==================== DEBUG ROUTE FOR EMAIL CONFIG ====================
+app.get('/api/debug/env', (req, res) => {
+    res.json({
+        emailConfigured: !!(process.env.ADMIN_EMAIL && process.env.ADMIN_EMAIL_PASSWORD),
+        email: process.env.ADMIN_EMAIL ? 'Set (hidden)' : 'Not set',
+        passwordLength: process.env.ADMIN_EMAIL_PASSWORD ? process.env.ADMIN_EMAIL_PASSWORD.length : 0,
+        nodeEnv: process.env.NODE_ENV
+    });
 });
 
 // ==================== ERROR HANDLING ====================
@@ -2026,6 +2058,7 @@ app.listen(PORT, () => {
     console.log(`📧 Email configured: ${!(process.env.ADMIN_EMAIL && process.env.ADMIN_EMAIL_PASSWORD) ? 'NO' : 'YES'}`);
     console.log(`🔐 Admin login: POST http://localhost:${PORT}/api/admin/login`);
     console.log(`📊 Health check: GET http://localhost:${PORT}/api/health`);
+    console.log(`🐛 Debug env: GET http://localhost:${PORT}/api/debug/env`);
     console.log(`📧 Email test: POST http://localhost:${PORT}/api/admin/test-email (requires auth)`);
     console.log('========================================');
 });
