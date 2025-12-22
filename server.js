@@ -129,11 +129,15 @@ const registrationSchema = new mongoose.Schema({
         required: [true, 'Stay preference is required'],
         enum: ['With Stay', 'Without Stay']
     },
+    stayDates: {
+        type: [String], // Array of date strings
+        default: []
+    },
     stayDays: {
         type: Number,
         default: 0,
         min: [0, 'Stay days cannot be negative'],
-        max: [10, 'Stay days cannot exceed 10']
+        max: [3, 'Stay days cannot exceed 3']
     },
     
     // Payment Information
@@ -283,7 +287,8 @@ app.get('/', (req, res) => {
                 register: 'POST /api/register',
                 checkEmail: 'POST /api/check-email',
                 health: 'GET /api/health',
-                checkStatus: 'GET /api/check-status/:transactionId'
+                checkStatus: 'GET /api/check-status/:transactionId',
+                stayAvailability: 'GET /api/stay-availability'
             },
             admin: {
                 login: 'POST /api/admin/login',
@@ -308,6 +313,38 @@ app.get('/api/health', (req, res) => {
         memory: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
         timestamp: new Date().toISOString()
     });
+});
+
+// GET stay availability
+app.get('/api/stay-availability', async (req, res) => {
+  try {
+    // Count users who have selected stay and are approved
+    const stayUsersCount = await Registration.countDocuments({
+      stayPreference: 'With Stay',
+      registrationStatus: 'approved'
+    });
+    
+    const maxStayCapacity = 100;
+    const remainingSpots = Math.max(0, maxStayCapacity - stayUsersCount);
+    const available = remainingSpots > 0;
+    
+    res.json({
+      success: true,
+      data: {
+        available,
+        remaining: remainingSpots,
+        totalCapacity: maxStayCapacity,
+        used: stayUsersCount,
+        lastUpdated: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Stay availability error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching stay availability'
+    });
+  }
 });
 
 app.post('/api/check-email', async (req, res) => {
@@ -373,7 +410,7 @@ app.get('/api/check-status/:transactionId', async (req, res) => {
 
         const registration = await Registration.findOne({ 
             transactionId: transactionId.trim() 
-        }).select('fullName email registrationStatus registrationDate transactionId');
+        }).select('fullName email registrationStatus registrationDate transactionId stayDates stayDays');
 
         if (!registration) {
             return res.status(404).json({
@@ -411,7 +448,7 @@ app.post('/api/register', async (req, res) => {
             isIsteMember,
             isteRegistrationNumber,
             stayPreference,
-            stayDays,
+            stayDates,
             totalAmount,
             transactionId
         } = req.body;
@@ -450,25 +487,57 @@ app.post('/api/register', async (req, res) => {
             finalDepartment = otherDepartment.trim();
         }
 
-        // Validate stayDays based on stayPreference
-        let finalStayDays = 0;
+        // Validate stay selection
         if (stayPreference === 'With Stay') {
-            if (!stayDays || stayDays < 1) {
+            // Check stay capacity
+            const stayUsersCount = await Registration.countDocuments({
+                stayPreference: 'With Stay',
+                registrationStatus: 'approved'
+            });
+            
+            if (stayUsersCount >= 100) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Stay days must be at least 1 when selecting "With Stay"'
+                    message: 'Stay accommodation is full. No more spots available.'
                 });
             }
-            if (stayDays > 10) {
+            
+            // Validate stayDates
+            if (!Array.isArray(stayDates) || stayDates.length === 0) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Stay days cannot exceed 10'
+                    message: 'Please select at least one stay date'
                 });
             }
-            finalStayDays = Number(stayDays);
-        } else {
-            // For "Without Stay", explicitly set to 0
-            finalStayDays = 0;
+            
+            // Validate dates are within event dates (29, 30, 31 Jan 2024)
+            const validDates = [
+                'Mon Jan 29 2024 05:30:00 GMT+0530 (India Standard Time)',
+                'Tue Jan 30 2024 05:30:00 GMT+0530 (India Standard Time)', 
+                'Wed Jan 31 2024 05:30:00 GMT+0530 (India Standard Time)'
+            ];
+            
+            // Check if all selected dates are valid
+            const invalidDates = stayDates.filter(date => {
+                const dateObj = new Date(date);
+                const dateString = dateObj.toString();
+                return !validDates.includes(dateString);
+            });
+            
+            if (invalidDates.length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Stay dates must be 29, 30, or 31 January 2024'
+                });
+            }
+            
+            // Max 3 days
+            if (stayDates.length > 3) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Maximum 3 stay days allowed'
+                });
+            }
         }
 
         const cleanEmail = email.toLowerCase().trim();
@@ -508,12 +577,13 @@ app.post('/api/register', async (req, res) => {
             phone: phone.trim(),
             institution: institution.trim(),
             college: college.trim(),
-            department: finalDepartment, // Use the processed department
+            department: finalDepartment,
             year,
             isIsteMember,
             isteRegistrationNumber: isteRegistrationNumber ? isteRegistrationNumber.trim() : '',
             stayPreference,
-            stayDays: finalStayDays,
+            stayDates: stayPreference === 'With Stay' ? stayDates : [],
+            stayDays: stayPreference === 'With Stay' ? stayDates.length : 0,
             totalAmount: Number(totalAmount),
             transactionId: transactionId.trim(),
             paymentStatus: 'verified',
@@ -540,6 +610,7 @@ app.post('/api/register', async (req, res) => {
                 isIsteMember: registration.isIsteMember,
                 isteRegistrationNumber: registration.isteRegistrationNumber,
                 stayPreference: registration.stayPreference,
+                stayDates: registration.stayDates,
                 stayDays: registration.stayDays,
                 transactionId: registration.transactionId,
                 totalAmount: registration.totalAmount,
@@ -880,6 +951,14 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
             { $limit: 10 }
         ]);
 
+        // Calculate stay capacity stats
+        const stayCapacity = 100;
+        const usedStay = await Registration.countDocuments({ 
+            stayPreference: 'With Stay',
+            registrationStatus: 'approved'
+        });
+        const remainingStay = Math.max(0, stayCapacity - usedStay);
+
         res.json({
             success: true,
             data: {
@@ -888,7 +967,12 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
                 approvedRegistrations,
                 rejectedRegistrations,
                 totalRevenue: totalRevenue[0]?.total || 0,
-                stayPreferenceStats: stayStats,
+                stayStats: {
+                    capacity: stayCapacity,
+                    used: usedStay,
+                    remaining: remainingStay,
+                    details: stayStats
+                },
                 institutionStats: institutionStats,
                 departmentStats: departmentStats,
                 emailDomainStats: emailStats,
@@ -935,6 +1019,7 @@ app.listen(PORT, () => {
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔐 Admin login: POST http://localhost:${PORT}/api/admin/login`);
     console.log(`📧 Email check: POST http://localhost:${PORT}/api/check-email`);
+    console.log(`🛏️ Stay availability: GET http://localhost:${PORT}/api/stay-availability`);
     console.log(`📊 Health check: GET http://localhost:${PORT}/api/health`);
     console.log('========================================');
 });
