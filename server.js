@@ -510,7 +510,7 @@ app.post('/api/register', async (req, res) => {
                 });
             }
             
-            // Validate dates are within event dates (29, 30, 31 Jan 2024)
+            // Validate dates are within event dates (29, 30, 31 Jan 2026) - UPDATED TO 2026
             const validDates = [
                 'Thu Jan 29 2026 05:30:00 GMT+0530 (India Standard Time)',
                 'Fri Jan 30 2026 05:30:00 GMT+0530 (India Standard Time)', 
@@ -527,7 +527,7 @@ app.post('/api/register', async (req, res) => {
             if (invalidDates.length > 0) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Stay dates must be 29, 30, or 31 January 2024'
+                    message: 'Stay dates must be 29, 30, or 31 January 2026'
                 });
             }
             
