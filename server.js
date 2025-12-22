@@ -435,6 +435,7 @@ app.get('/api/check-status/:transactionId', async (req, res) => {
 app.post('/api/register', async (req, res) => {
     try {
         console.log('📝 New registration request');
+        console.log('📅 Full request body:', JSON.stringify(req.body, null, 2));
         
         const {
             fullName,
@@ -452,6 +453,25 @@ app.post('/api/register', async (req, res) => {
             totalAmount,
             transactionId
         } = req.body;
+
+        // Log stay dates for debugging
+        console.log('📅 Stay dates received:', stayDates);
+        console.log('📅 Type of stayDates:', typeof stayDates);
+        console.log('📅 Is array:', Array.isArray(stayDates));
+
+        if (Array.isArray(stayDates)) {
+            stayDates.forEach((dateStr, index) => {
+                const date = new Date(dateStr);
+                console.log(`📅 Date ${index}:`, dateStr);
+                console.log(`📅 Date ${index} parsed:`, date);
+                console.log(`📅 Date ${index} components:`, {
+                    year: date.getFullYear(),
+                    month: date.getMonth(),
+                    day: date.getDate(),
+                    valid: !isNaN(date.getTime())
+                });
+            });
+        }
 
         // Validate required fields
         const requiredFields = {
@@ -510,24 +530,61 @@ app.post('/api/register', async (req, res) => {
                 });
             }
             
-            // Validate dates are within event dates (29, 30, 31 Jan 2026) - UPDATED TO 2026
-            const validDates = [
-                'Thu Jan 29 2026 05:30:00 GMT+0530 (India Standard Time)',
-                'Fri Jan 30 2026 05:30:00 GMT+0530 (India Standard Time)', 
-                'Sat Jan 31 2026 05:30:00 GMT+0530 (India Standard Time)'
-            ];
+            // Validate each date is Jan 29, 30, or 31 2026
+            // Check date components instead of exact string match
+            const validDays = [29, 30, 31];
+            const invalidDates = [];
             
-            // Check if all selected dates are valid
-            const invalidDates = stayDates.filter(date => {
-                const dateObj = new Date(date);
-                const dateString = dateObj.toString();
-                return !validDates.includes(dateString);
-            });
+            for (const dateStr of stayDates) {
+                try {
+                    const date = new Date(dateStr);
+                    
+                    // Check if date is valid
+                    if (isNaN(date.getTime())) {
+                        invalidDates.push(dateStr);
+                        continue;
+                    }
+                    
+                    // Check year is 2026
+                    if (date.getFullYear() !== 2026) {
+                        console.log(`❌ Wrong year: ${date.getFullYear()} for date: ${dateStr}`);
+                        invalidDates.push(dateStr);
+                        continue;
+                    }
+                    
+                    // Check month is January (0-indexed)
+                    if (date.getMonth() !== 0) { // 0 = January
+                        console.log(`❌ Wrong month: ${date.getMonth()} for date: ${dateStr}`);
+                        invalidDates.push(dateStr);
+                        continue;
+                    }
+                    
+                    // Check day is 29, 30, or 31
+                    const day = date.getDate();
+                    if (!validDays.includes(day)) {
+                        console.log(`❌ Wrong day: ${day} for date: ${dateStr}`);
+                        invalidDates.push(dateStr);
+                        continue;
+                    }
+                    
+                    console.log(`✅ Valid date: ${dateStr} - Day: ${day}, Month: ${date.getMonth()}, Year: ${date.getFullYear()}`);
+                    
+                } catch (error) {
+                    console.log(`❌ Error parsing date: ${dateStr}`, error.message);
+                    invalidDates.push(dateStr);
+                }
+            }
             
             if (invalidDates.length > 0) {
+                console.log('❌ Invalid stay dates detected:', invalidDates);
                 return res.status(400).json({
                     success: false,
-                    message: 'Stay dates must be 29, 30, or 31 January 2026'
+                    message: 'Stay dates must be 29, 30, or 31 January 2026',
+                    debug: {
+                        receivedDates: stayDates,
+                        invalidDates: invalidDates,
+                        message: 'Check that dates are exactly January 29, 30, or 31, 2026'
+                    }
                 });
             }
             
@@ -621,6 +678,7 @@ app.post('/api/register', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Registration error:', error.message);
+        console.error('❌ Error stack:', error.stack);
 
         if (error.code === 11000) {
             const duplicateField = error.keyValue ? Object.keys(error.keyValue)[0] : 'field';
