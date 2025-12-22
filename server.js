@@ -512,9 +512,9 @@ app.post('/api/register', async (req, res) => {
             
             // Validate dates are within event dates (29, 30, 31 Jan 2024)
             const validDates = [
-                'Mon Jan 29 2024 05:30:00 GMT+0530 (India Standard Time)',
-                'Tue Jan 30 2024 05:30:00 GMT+0530 (India Standard Time)', 
-                'Wed Jan 31 2024 05:30:00 GMT+0530 (India Standard Time)'
+                'Thu Jan 29 2026 05:30:00 GMT+0530 (India Standard Time)',
+                'Fri Jan 30 2026 05:30:00 GMT+0530 (India Standard Time)', 
+                'Sat Jan 31 2026 05:30:00 GMT+0530 (India Standard Time)'
             ];
             
             // Check if all selected dates are valid
