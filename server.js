@@ -945,8 +945,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-// Import email utility with template generators (FIXED IMPORT)
-const { sendEmail, generateApprovalEmail, generateRejectionEmail } = require('./utils/sendEmail');
+// Import only the sendEmail function
+const sendEmail = require('./utils/sendEmail');
 
 const app = express();
 
@@ -1010,7 +1010,6 @@ if (!MONGODB_URI) {
     process.exit(1);
 }
 
-// FIXED: Removed deprecated options useNewUrlParser and useUnifiedTopology
 mongoose.connect(MONGODB_URI, {
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
@@ -1026,7 +1025,6 @@ mongoose.connect(MONGODB_URI, {
 
 // ==================== MODELS ====================
 const registrationSchema = new mongoose.Schema({
-    // Personal Information
     fullName: { 
         type: String, 
         required: [true, 'Full name is required'],
@@ -1046,8 +1044,6 @@ const registrationSchema = new mongoose.Schema({
         required: [true, 'Phone number is required'],
         trim: true
     },
-    
-    // Academic Information
     institution: {
         type: String,
         required: [true, 'Institution type is required'],
@@ -1072,8 +1068,6 @@ const registrationSchema = new mongoose.Schema({
         required: [true, 'Academic year is required'],
         enum: ['First', 'Second', 'Third', 'Fourth', 'Final']
     },
-    
-    // ISTE Information
     isIsteMember: { 
         type: String, 
         required: [true, 'ISTE membership status is required'],
@@ -1084,8 +1078,6 @@ const registrationSchema = new mongoose.Schema({
         default: '',
         trim: true
     },
-    
-    // Accommodation Information
     stayPreference: { 
         type: String, 
         required: [true, 'Stay preference is required'],
@@ -1097,8 +1089,6 @@ const registrationSchema = new mongoose.Schema({
         min: [0, 'Stay days cannot be negative'],
         max: [10, 'Stay days cannot exceed 10']
     },
-    
-    // Payment Information
     totalAmount: { 
         type: Number, 
         required: [true, 'Total amount is required'],
@@ -1115,8 +1105,6 @@ const registrationSchema = new mongoose.Schema({
         default: 'verified', 
         enum: ['verified', 'failed', 'pending']
     },
-    
-    // Registration Status
     registrationStatus: {
         type: String,
         default: 'pending',
@@ -1126,8 +1114,6 @@ const registrationSchema = new mongoose.Schema({
         type: Date, 
         default: Date.now 
     },
-    
-    // Admin Actions
     approvedBy: { 
         type: String, 
         default: '' 
@@ -1143,8 +1129,6 @@ const registrationSchema = new mongoose.Schema({
         default: '',
         trim: true
     },
-    
-    // Email tracking
     emailSent: {
         approval: { type: Boolean, default: false },
         rejection: { type: Boolean, default: false },
@@ -1154,7 +1138,6 @@ const registrationSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Indexes for better performance
 registrationSchema.index({ registrationStatus: 1 });
 registrationSchema.index({ registrationDate: -1 });
 registrationSchema.index({ institution: 1, registrationStatus: 1 });
@@ -1185,13 +1168,105 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
+// ==================== EMAIL TEMPLATE FUNCTIONS ====================
+const generateApprovalEmailTemplate = (userData) => {
+    const registrationId = userData._id ? `ISTE${userData._id.toString().slice(-8).toUpperCase()}` : 'N/A';
+    
+    return {
+        subject: '🎉 Registration Approved - ISTE INDUSTRY 5.0',
+        html: `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #4CAF50; color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #eaeaea; }
+        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>ISTE INDUSTRY 5.0</h1>
+        <h2>Registration Approved!</h2>
+    </div>
+    <div class="content">
+        <p>Dear <strong>${userData.fullName || 'Student'}</strong>,</p>
+        <p>🎉 Congratulations! Your registration for <strong>ISTE INDUSTRY 5.0</strong> has been <strong>APPROVED</strong>!</p>
+        
+        <h3>Registration Details:</h3>
+        <p><strong>Registration ID:</strong> ${registrationId}</p>
+        <p><strong>Name:</strong> ${userData.fullName || ''}</p>
+        <p><strong>College:</strong> ${userData.college || ''}</p>
+        <p><strong>Department:</strong> ${userData.department || ''}</p>
+        <p><strong>Transaction ID:</strong> ${userData.transactionId || ''}</p>
+        
+        <p>We look forward to seeing you at the event! Please carry your college ID card for verification.</p>
+        
+        <p>Best regards,<br><strong>ISTE INDUSTRY 5.0 Team</strong></p>
+    </div>
+    <div class="footer">
+        <p>This is an automated email. Please do not reply.</p>
+        <p>© ${new Date().getFullYear()} ISTE INDUSTRY 5.0</p>
+    </div>
+</body>
+</html>`
+    };
+};
+
+const generateRejectionEmailTemplate = (userData) => {
+    return {
+        subject: '⚠️ Registration Update - ISTE INDUSTRY 5.0',
+        html: `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #ff6b6b; color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #eaeaea; }
+        .reason { background: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0; }
+        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>ISTE INDUSTRY 5.0</h1>
+        <h2>Registration Status Update</h2>
+    </div>
+    <div class="content">
+        <p>Dear <strong>${userData.fullName || 'Student'}</strong>,</p>
+        <p>We regret to inform you that your registration for <strong>ISTE INDUSTRY 5.0</strong> could not be approved at this time.</p>
+        
+        <div class="reason">
+            <h4>Reason for Rejection:</h4>
+            <p>"${userData.rejectionReason || 'Registration does not meet the required criteria. Please contact us for more information.'}"</p>
+        </div>
+        
+        <p><strong>Transaction ID:</strong> ${userData.transactionId || ''}</p>
+        
+        <p>If you believe there's been a mistake, please contact us immediately with your Transaction ID.</p>
+        
+        <p>We apologize for any inconvenience caused.</p>
+        
+        <p>Sincerely,<br><strong>ISTE INDUSTRY 5.0 Team</strong></p>
+    </div>
+    <div class="footer">
+        <p>This is an automated email. Please do not reply.</p>
+        <p>© ${new Date().getFullYear()} ISTE INDUSTRY 5.0</p>
+    </div>
+</body>
+</html>`
+    };
+};
+
 // ==================== HELPER FUNCTIONS ====================
 const sendApprovalEmail = async (registration) => {
     try {
         console.log(`📧 Attempting to send approval email to: ${registration.email}`);
         
-        // FIXED: Use generateApprovalEmail function
-        const emailTemplate = generateApprovalEmail(registration);
+        // Use the inline template function
+        const emailTemplate = generateApprovalEmailTemplate(registration);
         
         console.log('📧 Email template generated, calling sendEmail...');
         
@@ -1204,9 +1279,7 @@ const sendApprovalEmail = async (registration) => {
 
         console.log('📧 sendEmail result:', emailResult);
 
-        // FIXED: Check emailResult properly
         if (emailResult && emailResult.success === true) {
-            // Update email tracking in database
             await Registration.findByIdAndUpdate(registration._id, {
                 $set: {
                     'emailSent.approval': true,
@@ -1232,8 +1305,8 @@ const sendRejectionEmail = async (registration) => {
     try {
         console.log(`📧 Attempting to send rejection email to: ${registration.email}`);
         
-        // FIXED: Use generateRejectionEmail function
-        const emailTemplate = generateRejectionEmail(registration);
+        // Use the inline template function
+        const emailTemplate = generateRejectionEmailTemplate(registration);
         
         const emailResult = await sendEmail({
             to: registration.email,
@@ -1245,7 +1318,6 @@ const sendRejectionEmail = async (registration) => {
         console.log('📧 sendEmail result:', emailResult);
 
         if (emailResult && emailResult.success === true) {
-            // Update email tracking in database
             await Registration.findByIdAndUpdate(registration._id, {
                 $set: {
                     'emailSent.rejection': true,
@@ -1750,7 +1822,7 @@ app.put('/api/admin/registration/:id/approve', authenticateToken, async (req, re
             success: true,
             message: 'Registration approved successfully' + (emailSent ? ' and email sent' : ' (email notification failed)'),
             data: registration,
-            emailSent: emailSent // Make sure this is included
+            emailSent: emailSent
         });
 
     } catch (error) {
@@ -1807,7 +1879,7 @@ app.put('/api/admin/registration/:id/reject', authenticateToken, async (req, res
             success: true,
             message: 'Registration rejected' + (emailSent ? ' and email sent' : ' (email notification failed)'),
             data: registration,
-            emailSent: emailSent // Make sure this is included
+            emailSent: emailSent
         });
 
     } catch (error) {
@@ -1959,8 +2031,7 @@ app.post('/api/admin/test-email', authenticateToken, async (req, res) => {
                 registrationDate: new Date()
             };
             
-            // FIXED: Use generateApprovalEmail function
-            const emailTemplate = generateApprovalEmail(testUser);
+            const emailTemplate = generateApprovalEmailTemplate(testUser);
             testResult = await sendEmail({
                 to,
                 subject: emailTemplate.subject,
@@ -1979,8 +2050,7 @@ app.post('/api/admin/test-email', authenticateToken, async (req, res) => {
                 createdAt: new Date()
             };
             
-            // FIXED: Use generateRejectionEmail function
-            const emailTemplate = generateRejectionEmail(testUser);
+            const emailTemplate = generateRejectionEmailTemplate(testUser);
             testResult = await sendEmail({
                 to,
                 subject: emailTemplate.subject,
@@ -1988,7 +2058,6 @@ app.post('/api/admin/test-email', authenticateToken, async (req, res) => {
             });
             
         } else {
-            // Simple test email
             testResult = await sendEmail({
                 to,
                 subject: 'Test Email from ISTE INDUSTRY 5.0',
@@ -2012,7 +2081,7 @@ app.post('/api/admin/test-email', authenticateToken, async (req, res) => {
     }
 });
 
-// ==================== DEBUG ROUTE FOR EMAIL CONFIG ====================
+// ==================== DEBUG ROUTE ====================
 app.get('/api/debug/env', (req, res) => {
     res.json({
         emailConfigured: !!(process.env.ADMIN_EMAIL && process.env.ADMIN_EMAIL_PASSWORD),
