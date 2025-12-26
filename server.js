@@ -5,8 +5,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-const sendEmail = require('./utils/sendEmail');
-
 const app = express();
 
 // ==================== CONFIGURATION ====================
@@ -16,8 +14,7 @@ const PORT = process.env.PORT || 5000;
 const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET', 'ADMIN_USERNAME', 'ADMIN_PASSWORD'];
 requiredEnvVars.forEach(varName => {
     if (!process.env[varName]) {
-        console.error(`❌ ERROR: Missing required environment variable: ${varName}`);
-        console.error(`   Please add ${varName}=value to your .env file`);
+        console.error(`❌ Missing required environment variable: ${varName}`);
         process.exit(1);
     }
 });
@@ -41,24 +38,12 @@ app.use(express.urlencoded({ extended: true }));
 // ==================== DATABASE CONNECTION ====================
 const MONGODB_URI = process.env.MONGODB_URI;
 
-if (!MONGODB_URI) {
-    console.error('❌ ERROR: MONGODB_URI is not defined in environment variables');
-    console.error('   Please add MONGODB_URI to your .env file');
-    process.exit(1);
-}
-
 mongoose.connect(MONGODB_URI)
     .then(() => {
-        console.log('✅ Connected to MongoDB Atlas!');
-        console.log(`📊 Database: ${mongoose.connection.db?.databaseName || 'iste_industry5'}`);
-        console.log(`📈 Connection state: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+        console.log('✅ Connected to MongoDB Atlas');
     })
     .catch(err => {
         console.error('❌ MongoDB connection failed:', err.message);
-        console.error('   Please check:');
-        console.error('   1. MongoDB Atlas network access (add your IP)');
-        console.error('   2. Database user password is correct');
-        console.error('   3. Internet connection');
         process.exit(1);
     });
 
@@ -69,7 +54,8 @@ const registrationSchema = new mongoose.Schema({
         type: String, 
         required: [true, 'Full name is required'],
         trim: true,
-        minlength: [2, 'Full name must be at least 2 characters']
+        minlength: [2, 'Full name must be at least 2 characters'],
+        index: true
     },
     email: { 
         type: String, 
@@ -77,45 +63,49 @@ const registrationSchema = new mongoose.Schema({
         unique: true, 
         lowercase: true,
         trim: true,
-        match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email']
+        match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email'],
+        index: true
     },
     phone: { 
         type: String, 
         required: [true, 'Phone number is required'],
-        trim: true
+        trim: true,
+        index: true
     },
     
     // Academic Information
     institution: {
         type: String,
         required: [true, 'Institution type is required'],
-        enum: {
-            values: ['Engineering', 'Polytechnic'],
-            message: 'Institution must be either Engineering or Polytechnic'
-        },
-        trim: true
+        enum: ['Engineering', 'Polytechnic'],
+        trim: true,
+        index: true
     },
     college: { 
         type: String, 
         required: [true, 'College name is required'],
-        trim: true
+        trim: true,
+        index: true
     },
     department: { 
         type: String, 
         required: [true, 'Department is required'],
-        trim: true
+        trim: true,
+        index: true
     },
     year: { 
         type: String, 
         required: [true, 'Academic year is required'],
-        enum: ['First', 'Second', 'Third', 'Fourth', 'Final']
+        enum: ['First', 'Second', 'Third', 'Fourth', 'Final'],
+        index: true
     },
     
     // ISTE Information
     isIsteMember: { 
         type: String, 
         required: [true, 'ISTE membership status is required'],
-        enum: ['Yes', 'No']
+        enum: ['Yes', 'No'],
+        index: true
     },
     isteRegistrationNumber: { 
         type: String, 
@@ -127,10 +117,11 @@ const registrationSchema = new mongoose.Schema({
     stayPreference: { 
         type: String, 
         required: [true, 'Stay preference is required'],
-        enum: ['With Stay', 'Without Stay']
+        enum: ['With Stay', 'Without Stay'],
+        index: true
     },
     stayDates: {
-        type: [String], // Array of date strings
+        type: [String],
         default: []
     },
     stayDays: {
@@ -144,29 +135,34 @@ const registrationSchema = new mongoose.Schema({
     totalAmount: { 
         type: Number, 
         required: [true, 'Total amount is required'],
-        min: [0, 'Amount cannot be negative']
+        min: [0, 'Amount cannot be negative'],
+        index: true
     },
     transactionId: { 
         type: String, 
         required: [true, 'Transaction ID is required'], 
         unique: true,
-        trim: true
+        trim: true,
+        index: true
     },
     paymentStatus: { 
         type: String, 
         default: 'verified', 
-        enum: ['verified', 'failed', 'pending']
+        enum: ['verified', 'failed', 'pending'],
+        index: true
     },
     
     // Registration Status
     registrationStatus: {
         type: String,
         default: 'pending',
-        enum: ['pending', 'approved', 'rejected']
+        enum: ['pending', 'approved', 'rejected'],
+        index: true
     },
     registrationDate: { 
         type: Date, 
-        default: Date.now 
+        default: Date.now,
+        index: true 
     },
     
     // Admin Actions
@@ -175,10 +171,12 @@ const registrationSchema = new mongoose.Schema({
         default: '' 
     },
     approvedAt: { 
-        type: Date 
+        type: Date,
+        index: true
     },
     rejectedAt: { 
-        type: Date 
+        type: Date,
+        index: true
     },
     rejectionReason: { 
         type: String, 
@@ -189,13 +187,17 @@ const registrationSchema = new mongoose.Schema({
     timestamps: true
 });
 
+// Add indexes for common queries
+registrationSchema.index({ registrationStatus: 1, registrationDate: -1 });
+registrationSchema.index({ stayPreference: 1, registrationStatus: 1 });
+registrationSchema.index({ institution: 1, registrationStatus: 1 });
+registrationSchema.index({ email: 1, transactionId: 1 });
+
 const Registration = mongoose.model('Registration', registrationSchema);
 
 // ==================== DATABASE MIGRATION ====================
 const migrateExistingDocuments = async () => {
     try {
-        console.log('🔍 Checking for documents that need migration...');
-        
         const docsToUpdate = await Registration.find({
             $or: [
                 { institution: { $exists: false } },
@@ -204,11 +206,11 @@ const migrateExistingDocuments = async () => {
         });
         
         if (docsToUpdate.length === 0) {
-            console.log('✅ All documents are up-to-date');
+            console.log('✅ Database is up-to-date');
             return;
         }
         
-        console.log(`📋 Found ${docsToUpdate.length} documents needing migration`);
+        console.log(`📋 Migrating ${docsToUpdate.length} documents`);
         
         let updatedCount = 0;
         for (const doc of docsToUpdate) {
@@ -237,16 +239,7 @@ const migrateExistingDocuments = async () => {
 
 // Run migration when connected
 mongoose.connection.on('connected', async () => {
-    console.log('📡 MongoDB connection established');
     await migrateExistingDocuments();
-});
-
-mongoose.connection.on('error', (err) => {
-    console.error('❌ MongoDB connection error:', err.message);
-});
-
-mongoose.connection.on('disconnected', () => {
-    console.warn('⚠️ MongoDB disconnected');
 });
 
 // ==================== AUTHENTICATION MIDDLEWARE ====================
@@ -257,7 +250,7 @@ const authenticateToken = (req, res, next) => {
     if (!token) {
         return res.status(401).json({
             success: false,
-            message: 'Access token required. Please login first.'
+            message: 'Access token required'
         });
     }
 
@@ -265,7 +258,7 @@ const authenticateToken = (req, res, next) => {
         if (err) {
             return res.status(403).json({
                 success: false,
-                message: 'Invalid or expired token. Please login again.'
+                message: 'Invalid or expired token'
             });
         }
         req.user = user;
@@ -278,47 +271,23 @@ app.get('/', (req, res) => {
     res.json({
         success: true,
         message: 'ISTE Industry 5.0 Registration API',
-        version: '1.0.0',
-        environment: process.env.NODE_ENV || 'development',
-        timestamp: new Date().toISOString(),
-        database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
-        endpoints: {
-            public: {
-                register: 'POST /api/register',
-                checkEmail: 'POST /api/check-email',
-                health: 'GET /api/health',
-                checkStatus: 'GET /api/check-status/:transactionId',
-                stayAvailability: 'GET /api/stay-availability'
-            },
-            admin: {
-                login: 'POST /api/admin/login',
-                registrations: 'GET /api/admin/registrations',
-                approve: 'PUT /api/admin/registration/:id/approve',
-                reject: 'PUT /api/admin/registration/:id/reject',
-                stats: 'GET /api/admin/stats'
-            }
-        }
+        version: '1.0.0'
     });
 });
 
 app.get('/api/health', (req, res) => {
     const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-    const uptime = process.uptime();
     
     res.json({
         success: true,
         status: 'healthy',
-        database: dbStatus,
-        uptime: `${Math.floor(uptime / 60)} minutes ${Math.floor(uptime % 60)} seconds`,
-        memory: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
-        timestamp: new Date().toISOString()
+        database: dbStatus
     });
 });
 
 // GET stay availability
 app.get('/api/stay-availability', async (req, res) => {
   try {
-    // Count users who have selected stay and are approved
     const stayUsersCount = await Registration.countDocuments({
       stayPreference: 'With Stay',
       registrationStatus: 'approved'
@@ -334,8 +303,7 @@ app.get('/api/stay-availability', async (req, res) => {
         available,
         remaining: remainingSpots,
         totalCapacity: maxStayCapacity,
-        used: stayUsersCount,
-        lastUpdated: new Date().toISOString()
+        used: stayUsersCount
       }
     });
   } catch (error) {
@@ -354,8 +322,7 @@ app.post('/api/check-email', async (req, res) => {
         if (!email) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'Email is required',
-                exists: false
+                message: 'Email is required'
             });
         }
 
@@ -365,8 +332,7 @@ app.post('/api/check-email', async (req, res) => {
         if (!emailRegex.test(cleanEmail)) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'Invalid email format',
-                exists: false
+                message: 'Invalid email format'
             });
         }
 
@@ -379,20 +345,14 @@ app.post('/api/check-email', async (req, res) => {
         return res.json({
             success: true,
             exists: exists,
-            message: exists ? 'Email already registered' : 'Email available',
-            data: exists ? {
-                id: existingRegistration._id,
-                fullName: existingRegistration.fullName,
-                status: existingRegistration.registrationStatus
-            } : null
+            message: exists ? 'Email already registered' : 'Email available'
         });
 
     } catch (error) {
-        console.error('❌ Error checking email:', error.message);
+        console.error('Error checking email:', error.message);
         return res.status(500).json({ 
             success: false, 
-            message: 'Server error checking email',
-            exists: false
+            message: 'Server error checking email'
         });
     }
 });
@@ -415,7 +375,7 @@ app.get('/api/check-status/:transactionId', async (req, res) => {
         if (!registration) {
             return res.status(404).json({
                 success: false,
-                message: 'Registration not found with this transaction ID'
+                message: 'Registration not found'
             });
         }
 
@@ -434,9 +394,6 @@ app.get('/api/check-status/:transactionId', async (req, res) => {
 
 app.post('/api/register', async (req, res) => {
     try {
-        console.log('📝 New registration request');
-        console.log('📅 Full request body:', JSON.stringify(req.body, null, 2));
-        
         const {
             fullName,
             email,
@@ -453,25 +410,6 @@ app.post('/api/register', async (req, res) => {
             totalAmount,
             transactionId
         } = req.body;
-
-        // Log stay dates for debugging
-        console.log('📅 Stay dates received:', stayDates);
-        console.log('📅 Type of stayDates:', typeof stayDates);
-        console.log('📅 Is array:', Array.isArray(stayDates));
-
-        if (Array.isArray(stayDates)) {
-            stayDates.forEach((dateStr, index) => {
-                const date = new Date(dateStr);
-                console.log(`📅 Date ${index}:`, dateStr);
-                console.log(`📅 Date ${index} parsed:`, date);
-                console.log(`📅 Date ${index} components:`, {
-                    year: date.getFullYear(),
-                    month: date.getMonth(),
-                    day: date.getDate(),
-                    valid: !isNaN(date.getTime())
-                });
-            });
-        }
 
         // Validate required fields
         const requiredFields = {
@@ -518,7 +456,7 @@ app.post('/api/register', async (req, res) => {
             if (stayUsersCount >= 100) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Stay accommodation is full. No more spots available.'
+                    message: 'Stay accommodation is full'
                 });
             }
             
@@ -531,7 +469,6 @@ app.post('/api/register', async (req, res) => {
             }
             
             // Validate each date is Jan 29, 30, or 31 2026
-            // Check date components instead of exact string match
             const validDays = [29, 30, 31];
             const invalidDates = [];
             
@@ -539,52 +476,31 @@ app.post('/api/register', async (req, res) => {
                 try {
                     const date = new Date(dateStr);
                     
-                    // Check if date is valid
                     if (isNaN(date.getTime())) {
                         invalidDates.push(dateStr);
                         continue;
                     }
                     
-                    // Check year is 2026
-                    if (date.getFullYear() !== 2026) {
-                        console.log(`❌ Wrong year: ${date.getFullYear()} for date: ${dateStr}`);
+                    if (date.getFullYear() !== 2026 || date.getMonth() !== 0) {
                         invalidDates.push(dateStr);
                         continue;
                     }
                     
-                    // Check month is January (0-indexed)
-                    if (date.getMonth() !== 0) { // 0 = January
-                        console.log(`❌ Wrong month: ${date.getMonth()} for date: ${dateStr}`);
-                        invalidDates.push(dateStr);
-                        continue;
-                    }
-                    
-                    // Check day is 29, 30, or 31
                     const day = date.getDate();
                     if (!validDays.includes(day)) {
-                        console.log(`❌ Wrong day: ${day} for date: ${dateStr}`);
                         invalidDates.push(dateStr);
                         continue;
                     }
                     
-                    console.log(`✅ Valid date: ${dateStr} - Day: ${day}, Month: ${date.getMonth()}, Year: ${date.getFullYear()}`);
-                    
                 } catch (error) {
-                    console.log(`❌ Error parsing date: ${dateStr}`, error.message);
                     invalidDates.push(dateStr);
                 }
             }
             
             if (invalidDates.length > 0) {
-                console.log('❌ Invalid stay dates detected:', invalidDates);
                 return res.status(400).json({
                     success: false,
-                    message: 'Stay dates must be 29, 30, or 31 January 2026',
-                    debug: {
-                        receivedDates: stayDates,
-                        invalidDates: invalidDates,
-                        message: 'Check that dates are exactly January 29, 30, or 31, 2026'
-                    }
+                    message: 'Stay dates must be 29, 30, or 31 January 2026'
                 });
             }
             
@@ -612,7 +528,7 @@ app.post('/api/register', async (req, res) => {
         if (existingEmail) {
             return res.status(400).json({
                 success: false,
-                message: 'This email is already registered. Please use a different email.'
+                message: 'This email is already registered'
             });
         }
 
@@ -623,7 +539,7 @@ app.post('/api/register', async (req, res) => {
         if (existingTransaction) {
             return res.status(400).json({
                 success: false,
-                message: 'This transaction ID is already used. Please verify your payment.'
+                message: 'This transaction ID is already used'
             });
         }
 
@@ -649,8 +565,6 @@ app.post('/api/register', async (req, res) => {
 
         await registration.save();
 
-        console.log(`✅ Registration saved: ${registration._id}`);
-
         res.status(201).json({
             success: true,
             message: 'Registration submitted successfully! Your registration is pending admin approval.',
@@ -659,34 +573,20 @@ app.post('/api/register', async (req, res) => {
                 registrationId: `ISTE${registration._id.toString().slice(-8).toUpperCase()}`,
                 fullName: registration.fullName,
                 email: registration.email,
-                phone: registration.phone,
-                institution: registration.institution,
-                college: registration.college,
-                department: registration.department,
-                year: registration.year,
-                isIsteMember: registration.isIsteMember,
-                isteRegistrationNumber: registration.isteRegistrationNumber,
-                stayPreference: registration.stayPreference,
-                stayDates: registration.stayDates,
-                stayDays: registration.stayDays,
                 transactionId: registration.transactionId,
                 totalAmount: registration.totalAmount,
-                registrationStatus: registration.registrationStatus,
-                registrationDate: registration.registrationDate
+                registrationStatus: registration.registrationStatus
             }
         });
 
     } catch (error) {
-        console.error('❌ Registration error:', error.message);
-        console.error('❌ Error stack:', error.stack);
+        console.error('Registration error:', error.message);
 
         if (error.code === 11000) {
             const duplicateField = error.keyValue ? Object.keys(error.keyValue)[0] : 'field';
             const message = duplicateField === 'email' 
-                ? 'This email is already registered. Please use a different email.'
-                : duplicateField === 'transactionId'
-                ? 'This transaction ID is already used. Please verify your payment.'
-                : `${duplicateField} already exists.`;
+                ? 'This email is already registered'
+                : 'This transaction ID is already used';
                 
             return res.status(400).json({
                 success: false,
@@ -705,8 +605,7 @@ app.post('/api/register', async (req, res) => {
 
         res.status(500).json({
             success: false,
-            message: 'Server error. Please try again later.',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+            message: 'Server error. Please try again later.'
         });
     }
 });
@@ -725,7 +624,6 @@ app.post('/api/admin/login', async (req, res) => {
         }
 
         if (username !== process.env.ADMIN_USERNAME || password !== process.env.ADMIN_PASSWORD) {
-            console.warn(`⚠️ Failed login attempt for username: ${username}`);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid username or password'
@@ -736,25 +634,17 @@ app.post('/api/admin/login', async (req, res) => {
             { 
                 id: 1, 
                 username: username,
-                role: 'admin',
-                iat: Math.floor(Date.now() / 1000)
+                role: 'admin'
             },
             process.env.JWT_SECRET,
             { expiresIn: '8h' }
         );
 
-        console.log(`✅ Admin login successful: ${username}`);
-
         res.json({
             success: true,
             message: 'Login successful',
             token,
-            expiresIn: 8 * 60 * 60,
-            admin: {
-                id: 1,
-                name: 'ISTE Admin',
-                username: username
-            }
+            expiresIn: 8 * 60 * 60
         });
 
     } catch (error) {
@@ -819,31 +709,6 @@ app.get('/api/admin/registrations', authenticateToken, async (req, res) => {
     }
 });
 
-app.get('/api/admin/registration/:id', authenticateToken, async (req, res) => {
-    try {
-        const registration = await Registration.findById(req.params.id)
-            .lean();
-
-        if (!registration) {
-            return res.status(404).json({
-                success: false,
-                message: 'Registration not found'
-            });
-        }
-
-        res.json({
-            success: true,
-            data: registration
-        });
-    } catch (error) {
-        console.error('Get registration error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error'
-        });
-    }
-});
-
 app.put('/api/admin/registration/:id/approve', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
@@ -866,8 +731,6 @@ app.put('/api/admin/registration/:id/approve', authenticateToken, async (req, re
                 message: 'Registration not found'
             });
         }
-
-        console.log(`✅ Registration ${id} approved by ${approvedBy}`);
 
         res.json({
             success: true,
@@ -914,8 +777,6 @@ app.put('/api/admin/registration/:id/reject', authenticateToken, async (req, res
             });
         }
 
-        console.log(`❌ Registration ${id} rejected. Reason: ${reason}`);
-
         res.json({
             success: true,
             message: 'Registration rejected',
@@ -954,17 +815,7 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
             {
                 $group: {
                     _id: "$stayPreference",
-                    count: { $sum: 1 },
-                    totalStayDays: { $sum: { $ifNull: ["$stayDays", 0] } },
-                    pending: {
-                        $sum: { $cond: [{ $eq: ["$registrationStatus", "pending"] }, 1, 0] }
-                    },
-                    approved: {
-                        $sum: { $cond: [{ $eq: ["$registrationStatus", "approved"] }, 1, 0] }
-                    },
-                    rejected: {
-                        $sum: { $cond: [{ $eq: ["$registrationStatus", "rejected"] }, 1, 0] }
-                    }
+                    count: { $sum: 1 }
                 }
             }
         ]);
@@ -973,40 +824,9 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
             {
                 $group: {
                     _id: "$institution",
-                    count: { $sum: 1 },
-                    pending: {
-                        $sum: { $cond: [{ $eq: ["$registrationStatus", "pending"] }, 1, 0] }
-                    },
-                    approved: {
-                        $sum: { $cond: [{ $eq: ["$registrationStatus", "approved"] }, 1, 0] }
-                    },
-                    rejected: {
-                        $sum: { $cond: [{ $eq: ["$registrationStatus", "rejected"] }, 1, 0] }
-                    }
+                    count: { $sum: 1 }
                 }
             }
-        ]);
-
-        const departmentStats = await Registration.aggregate([
-            {
-                $group: {
-                    _id: "$department",
-                    count: { $sum: 1 }
-                }
-            },
-            { $sort: { count: -1 } },
-            { $limit: 20 }
-        ]);
-
-        const emailStats = await Registration.aggregate([
-            {
-                $group: {
-                    _id: { $substr: ["$email", { $indexOfBytes: ["$email", "@"] }, 100] },
-                    count: { $sum: 1 }
-                }
-            },
-            { $sort: { count: -1 } },
-            { $limit: 10 }
         ]);
 
         // Calculate stay capacity stats
@@ -1028,12 +848,9 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
                 stayStats: {
                     capacity: stayCapacity,
                     used: usedStay,
-                    remaining: remainingStay,
-                    details: stayStats
+                    remaining: remainingStay
                 },
                 institutionStats: institutionStats,
-                departmentStats: departmentStats,
-                emailDomainStats: emailStats,
                 lastUpdated: new Date().toISOString()
             }
         });
@@ -1042,42 +859,29 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
         console.error('Stats error:', error);
         res.status(500).json({ 
             success: false, 
-            message: 'Failed to fetch statistics',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+            message: 'Failed to fetch statistics'
         });
     }
 });
 
 // ==================== ERROR HANDLING ====================
-
 app.use('*', (req, res) => {
     res.status(404).json({
         success: false,
-        message: 'Endpoint not found',
-        requestedUrl: req.originalUrl,
-        method: req.method
+        message: 'Endpoint not found'
     });
 });
 
 app.use((err, req, res, next) => {
-    console.error('🚨 Unhandled error:', err.stack);
+    console.error('Server error:', err.message);
     
     res.status(err.status || 500).json({
         success: false,
-        message: process.env.NODE_ENV === 'production' 
-            ? 'Internal server error' 
-            : err.message,
-        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+        message: 'Internal server error'
     });
 });
 
 // ==================== START SERVER ====================
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔐 Admin login: POST http://localhost:${PORT}/api/admin/login`);
-    console.log(`📧 Email check: POST http://localhost:${PORT}/api/check-email`);
-    console.log(`🛏️ Stay availability: GET http://localhost:${PORT}/api/stay-availability`);
-    console.log(`📊 Health check: GET http://localhost:${PORT}/api/health`);
-    console.log('========================================');
 });
