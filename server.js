@@ -9,6 +9,8 @@ const app = express();
 
 // ==================== CONFIGURATION ====================
 const PORT = process.env.PORT || 5000;
+const MAX_STAY_CAPACITY = 250; // Updated to 250
+const STAY_PRICE_PER_DAY = 217; // Updated to 217
 
 // Validate required environment variables
 const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET', 'ADMIN_USERNAME', 'ADMIN_PASSWORD'];
@@ -130,8 +132,20 @@ const registrationSchema = new mongoose.Schema({
         min: [0, 'Stay days cannot be negative'],
         max: [3, 'Stay days cannot exceed 3']
     },
+    stayPricePerDay: {
+        type: Number,
+        default: STAY_PRICE_PER_DAY
+    },
+    stayTotalAmount: {
+        type: Number,
+        default: 0
+    },
     
     // Payment Information
+    baseAmount: {
+        type: Number,
+        required: true
+    },
     totalAmount: { 
         type: Number, 
         required: [true, 'Total amount is required'],
@@ -201,7 +215,9 @@ const migrateExistingDocuments = async () => {
         const docsToUpdate = await Registration.find({
             $or: [
                 { institution: { $exists: false } },
-                { stayDays: { $exists: false } }
+                { stayDays: { $exists: false } },
+                { stayPricePerDay: { $exists: false } },
+                { baseAmount: { $exists: false } }
             ]
         });
         
@@ -222,6 +238,19 @@ const migrateExistingDocuments = async () => {
             
             if (doc.stayDays === undefined || doc.stayDays === null) {
                 updates.stayDays = doc.stayPreference === 'With Stay' ? 1 : 0;
+            }
+            
+            if (!doc.stayPricePerDay) {
+                updates.stayPricePerDay = STAY_PRICE_PER_DAY;
+            }
+            
+            if (!doc.baseAmount) {
+                // Calculate base amount based on institution and ISTE membership
+                if (doc.institution === 'Polytechnic') {
+                    updates.baseAmount = doc.isIsteMember === 'Yes' ? 300 : 350;
+                } else {
+                    updates.baseAmount = doc.isIsteMember === 'Yes' ? 450 : 500;
+                }
             }
             
             if (Object.keys(updates).length > 0) {
@@ -271,7 +300,9 @@ app.get('/', (req, res) => {
     res.json({
         success: true,
         message: 'ISTE Industry 5.0 Registration API',
-        version: '1.0.0'
+        version: '1.0.0',
+        stayCapacity: MAX_STAY_CAPACITY,
+        stayPricePerDay: STAY_PRICE_PER_DAY
     });
 });
 
@@ -293,8 +324,7 @@ app.get('/api/stay-availability', async (req, res) => {
       registrationStatus: 'approved'
     });
     
-    const maxStayCapacity = 100;
-    const remainingSpots = Math.max(0, maxStayCapacity - stayUsersCount);
+    const remainingSpots = Math.max(0, MAX_STAY_CAPACITY - stayUsersCount);
     const available = remainingSpots > 0;
     
     res.json({
@@ -302,8 +332,9 @@ app.get('/api/stay-availability', async (req, res) => {
       data: {
         available,
         remaining: remainingSpots,
-        totalCapacity: maxStayCapacity,
-        used: stayUsersCount
+        totalCapacity: MAX_STAY_CAPACITY,
+        used: stayUsersCount,
+        pricePerDay: STAY_PRICE_PER_DAY
       }
     });
   } catch (error) {
@@ -370,7 +401,7 @@ app.get('/api/check-status/:transactionId', async (req, res) => {
 
         const registration = await Registration.findOne({ 
             transactionId: transactionId.trim() 
-        }).select('fullName email registrationStatus registrationDate transactionId stayDates stayDays');
+        }).select('fullName email registrationStatus registrationDate transactionId stayDates stayDays baseAmount totalAmount');
 
         if (!registration) {
             return res.status(404).json({
@@ -453,7 +484,7 @@ app.post('/api/register', async (req, res) => {
                 registrationStatus: 'approved'
             });
             
-            if (stayUsersCount >= 100) {
+            if (stayUsersCount >= MAX_STAY_CAPACITY) {
                 return res.status(400).json({
                     success: false,
                     message: 'Stay accommodation is full'
@@ -543,6 +574,26 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
+        // Calculate amounts
+        let baseAmount;
+        if (institution.trim() === 'Polytechnic') {
+            baseAmount = isIsteMember === 'Yes' ? 300 : 350;
+        } else {
+            baseAmount = isIsteMember === 'Yes' ? 450 : 500;
+        }
+        
+        const stayDays = stayPreference === 'With Stay' ? stayDates.length : 0;
+        const stayTotalAmount = stayDays * STAY_PRICE_PER_DAY;
+        const calculatedTotalAmount = baseAmount + stayTotalAmount;
+
+        // Validate total amount matches calculation
+        if (Number(totalAmount) !== calculatedTotalAmount) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid total amount. Expected ₹${calculatedTotalAmount}, got ₹${totalAmount}`
+            });
+        }
+
         // Create and save registration
         const registration = new Registration({
             fullName: fullName.trim(),
@@ -556,8 +607,11 @@ app.post('/api/register', async (req, res) => {
             isteRegistrationNumber: isteRegistrationNumber ? isteRegistrationNumber.trim() : '',
             stayPreference,
             stayDates: stayPreference === 'With Stay' ? stayDates : [],
-            stayDays: stayPreference === 'With Stay' ? stayDates.length : 0,
-            totalAmount: Number(totalAmount),
+            stayDays: stayDays,
+            stayPricePerDay: STAY_PRICE_PER_DAY,
+            stayTotalAmount: stayTotalAmount,
+            baseAmount: baseAmount,
+            totalAmount: calculatedTotalAmount,
             transactionId: transactionId.trim(),
             paymentStatus: 'verified',
             registrationStatus: 'pending'
@@ -830,7 +884,7 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
         ]);
 
         // Calculate stay capacity stats
-        const stayCapacity = 100;
+        const stayCapacity = MAX_STAY_CAPACITY;
         const usedStay = await Registration.countDocuments({ 
             stayPreference: 'With Stay',
             registrationStatus: 'approved'
@@ -848,7 +902,8 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
                 stayStats: {
                     capacity: stayCapacity,
                     used: usedStay,
-                    remaining: remainingStay
+                    remaining: remainingStay,
+                    pricePerDay: STAY_PRICE_PER_DAY
                 },
                 institutionStats: institutionStats,
                 lastUpdated: new Date().toISOString()
@@ -884,4 +939,6 @@ app.use((err, req, res, next) => {
 // ==================== START SERVER ====================
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🏨 Stay capacity: ${MAX_STAY_CAPACITY} spots`);
+    console.log(`💰 Stay price per day: ₹${STAY_PRICE_PER_DAY}`);
 });
