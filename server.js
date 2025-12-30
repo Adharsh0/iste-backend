@@ -68,8 +68,7 @@ const registrationSchema = new mongoose.Schema({
         type: String, 
         required: [true, 'Full name is required'],
         trim: true,
-        minlength: [2, 'Full name must be at least 2 characters'],
-        index: true
+        minlength: [2, 'Full name must be at least 2 characters']
     },
     email: { 
         type: String, 
@@ -77,14 +76,12 @@ const registrationSchema = new mongoose.Schema({
         unique: true, 
         lowercase: true,
         trim: true,
-        match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email'],
-        index: true
+        match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email']
     },
     phone: { 
         type: String, 
         required: [true, 'Phone number is required'],
-        trim: true,
-        index: true
+        trim: true
     },
     
     // Academic Information
@@ -92,34 +89,29 @@ const registrationSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Institution type is required'],
         enum: ['Engineering', 'Polytechnic'],
-        trim: true,
-        index: true
+        trim: true
     },
     college: { 
         type: String, 
         required: [true, 'College name is required'],
-        trim: true,
-        index: true
+        trim: true
     },
     department: { 
         type: String, 
         required: [true, 'Department is required'],
-        trim: true,
-        index: true
+        trim: true
     },
     year: { 
         type: String, 
         required: [true, 'Academic year is required'],
-        enum: ['First', 'Second', 'Third', 'Fourth', 'Final'],
-        index: true
+        enum: ['First', 'Second', 'Third', 'Fourth', 'Final']
     },
     
     // ISTE Information
     isIsteMember: { 
         type: String, 
         required: [true, 'ISTE membership status is required'],
-        enum: ['Yes', 'No'],
-        index: true
+        enum: ['Yes', 'No']
     },
     isteRegistrationNumber: { 
         type: String, 
@@ -131,8 +123,7 @@ const registrationSchema = new mongoose.Schema({
     stayPreference: { 
         type: String, 
         required: [true, 'Stay preference is required'],
-        enum: ['With Stay', 'Without Stay'],
-        index: true
+        enum: ['With Stay', 'Without Stay']
     },
     stayDates: {
         type: [String],
@@ -153,6 +144,13 @@ const registrationSchema = new mongoose.Schema({
         default: 0
     },
     
+    // NEW: Ambassador Code (Optional)
+    ambassadorCode: {
+        type: String,
+        default: '',
+        trim: true
+    },
+    
     // Payment Information
     baseAmount: {
         type: Number,
@@ -161,34 +159,29 @@ const registrationSchema = new mongoose.Schema({
     totalAmount: { 
         type: Number, 
         required: [true, 'Total amount is required'],
-        min: [0, 'Amount cannot be negative'],
-        index: true
+        min: [0, 'Amount cannot be negative']
     },
     transactionId: { 
         type: String, 
         required: [true, 'Transaction ID is required'], 
         unique: true,
-        trim: true,
-        index: true
+        trim: true
     },
     paymentStatus: { 
         type: String, 
         default: 'verified', 
-        enum: ['verified', 'failed', 'pending'],
-        index: true
+        enum: ['verified', 'failed', 'pending']
     },
     
     // Registration Status
     registrationStatus: {
         type: String,
         default: 'pending',
-        enum: ['pending', 'approved', 'rejected'],
-        index: true
+        enum: ['pending', 'approved', 'rejected']
     },
     registrationDate: { 
         type: Date, 
-        default: Date.now,
-        index: true 
+        default: Date.now
     },
     
     // Admin Actions
@@ -197,12 +190,10 @@ const registrationSchema = new mongoose.Schema({
         default: '' 
     },
     approvedAt: { 
-        type: Date,
-        index: true
+        type: Date
     },
     rejectedAt: { 
-        type: Date,
-        index: true
+        type: Date
     },
     rejectionReason: { 
         type: String, 
@@ -213,11 +204,14 @@ const registrationSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Add indexes for common queries
+// Add indexes for common queries - REMOVED DUPLICATE INDEX DEFINITIONS
+// Only define indexes here, not in the field definitions above
 registrationSchema.index({ registrationStatus: 1, registrationDate: -1 });
 registrationSchema.index({ stayPreference: 1, registrationStatus: 1 });
 registrationSchema.index({ institution: 1, registrationStatus: 1 });
 registrationSchema.index({ email: 1, transactionId: 1 });
+registrationSchema.index({ ambassadorCode: 1 }); // Index for ambassador code searches
+registrationSchema.index({ fullName: 'text', email: 'text', college: 'text', transactionId: 'text', ambassadorCode: 'text' });
 
 const Registration = mongoose.model('Registration', registrationSchema);
 
@@ -229,7 +223,8 @@ const migrateExistingDocuments = async () => {
                 { institution: { $exists: false } },
                 { stayDays: { $exists: false } },
                 { stayPricePerDay: { $exists: false } },
-                { baseAmount: { $exists: false } }
+                { baseAmount: { $exists: false } },
+                { ambassadorCode: { $exists: false } } // Add ambassadorCode to migration
             ]
         });
         
@@ -263,6 +258,11 @@ const migrateExistingDocuments = async () => {
                 } else {
                     updates.baseAmount = doc.isIsteMember === 'Yes' ? PRICING.ENGINEERING.ISTE_MEMBER : PRICING.ENGINEERING.NON_ISTE_MEMBER;
                 }
+            }
+            
+            // Add default empty string for ambassadorCode if it doesn't exist
+            if (doc.ambassadorCode === undefined || doc.ambassadorCode === null) {
+                updates.ambassadorCode = '';
             }
             
             if (Object.keys(updates).length > 0) {
@@ -414,7 +414,7 @@ app.get('/api/check-status/:transactionId', async (req, res) => {
 
         const registration = await Registration.findOne({ 
             transactionId: transactionId.trim() 
-        }).select('fullName email registrationStatus registrationDate transactionId stayDates stayDays baseAmount totalAmount');
+        }).select('fullName email registrationStatus registrationDate transactionId stayDates stayDays baseAmount totalAmount ambassadorCode');
 
         if (!registration) {
             return res.status(404).json({
@@ -451,6 +451,7 @@ app.post('/api/register', async (req, res) => {
             isteRegistrationNumber,
             stayPreference,
             stayDates,
+            ambassadorCode, // NEW FIELD
             totalAmount,
             transactionId
         } = req.body;
@@ -623,6 +624,7 @@ app.post('/api/register', async (req, res) => {
             stayDays: stayDays,
             stayPricePerDay: STAY_PRICE_PER_DAY,
             stayTotalAmount: stayTotalAmount,
+            ambassadorCode: ambassadorCode ? ambassadorCode.trim() : '', // NEW FIELD
             baseAmount: baseAmount,
             totalAmount: calculatedTotalAmount,
             transactionId: transactionId.trim(),
@@ -642,7 +644,8 @@ app.post('/api/register', async (req, res) => {
                 email: registration.email,
                 transactionId: registration.transactionId,
                 totalAmount: registration.totalAmount,
-                registrationStatus: registration.registrationStatus
+                registrationStatus: registration.registrationStatus,
+                ambassadorCode: registration.ambassadorCode // Include in response
             }
         });
 
@@ -744,7 +747,8 @@ app.get('/api/admin/registrations', authenticateToken, async (req, res) => {
                 { email: searchRegex },
                 { transactionId: searchRegex },
                 { college: searchRegex },
-                { department: searchRegex }
+                { department: searchRegex },
+                { ambassadorCode: searchRegex } // Include ambassador code in search
             ];
         }
 
@@ -896,6 +900,25 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
             }
         ]);
 
+        // Get ambassador code stats
+        const ambassadorStats = await Registration.aggregate([
+            {
+                $match: { ambassadorCode: { $ne: "" } } // Only count non-empty ambassador codes
+            },
+            {
+                $group: {
+                    _id: "$ambassadorCode",
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $sort: { count: -1 }
+            },
+            {
+                $limit: 10 // Show top 10 ambassador codes
+            }
+        ]);
+
         // Calculate stay capacity stats
         const stayCapacity = MAX_STAY_CAPACITY;
         const usedStay = await Registration.countDocuments({ 
@@ -903,6 +926,11 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
             registrationStatus: 'approved'
         });
         const remainingStay = Math.max(0, stayCapacity - usedStay);
+
+        // Count registrations with ambassador codes
+        const ambassadorCount = await Registration.countDocuments({
+            ambassadorCode: { $ne: "" }
+        });
 
         res.json({
             success: true,
@@ -919,6 +947,10 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
                     pricePerDay: STAY_PRICE_PER_DAY
                 },
                 institutionStats: institutionStats,
+                ambassadorStats: {
+                    totalWithCode: ambassadorCount,
+                    topCodes: ambassadorStats
+                },
                 lastUpdated: new Date().toISOString()
             }
         });
@@ -952,6 +984,5 @@ app.use((err, req, res, next) => {
 // ==================== START SERVER ====================
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`🏨 Stay capacity: ${MAX_STAY_CAPACITY} spots`);
-    console.log(`💰 Stay price per day: ₹${STAY_PRICE_PER_DAY}`);
+   
 });
