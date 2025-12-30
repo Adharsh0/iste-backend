@@ -12,6 +12,18 @@ const PORT = process.env.PORT || 5000;
 const MAX_STAY_CAPACITY = 250; // Updated to 250
 const STAY_PRICE_PER_DAY = 217; // Updated to 217
 
+// UPDATED PRICING
+const PRICING = {
+    POLYTECHNIC: {
+        ISTE_MEMBER: 250,      // UPDATED: ₹250 for polytechnic ISTE members
+        NON_ISTE_MEMBER: 300   // UPDATED: ₹300 for polytechnic non-ISTE members
+    },
+    ENGINEERING: {
+        ISTE_MEMBER: 450,      // ₹450 for engineering ISTE members
+        NON_ISTE_MEMBER: 500   // ₹500 for engineering non-ISTE members
+    }
+};
+
 // Validate required environment variables
 const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET', 'ADMIN_USERNAME', 'ADMIN_PASSWORD'];
 requiredEnvVars.forEach(varName => {
@@ -245,11 +257,11 @@ const migrateExistingDocuments = async () => {
             }
             
             if (!doc.baseAmount) {
-                // Calculate base amount based on institution and ISTE membership
+                // Calculate base amount based on UPDATED pricing
                 if (doc.institution === 'Polytechnic') {
-                    updates.baseAmount = doc.isIsteMember === 'Yes' ? 300 : 350;
+                    updates.baseAmount = doc.isIsteMember === 'Yes' ? PRICING.POLYTECHNIC.ISTE_MEMBER : PRICING.POLYTECHNIC.NON_ISTE_MEMBER;
                 } else {
-                    updates.baseAmount = doc.isIsteMember === 'Yes' ? 450 : 500;
+                    updates.baseAmount = doc.isIsteMember === 'Yes' ? PRICING.ENGINEERING.ISTE_MEMBER : PRICING.ENGINEERING.NON_ISTE_MEMBER;
                 }
             }
             
@@ -302,7 +314,8 @@ app.get('/', (req, res) => {
         message: 'ISTE Industry 5.0 Registration API',
         version: '1.0.0',
         stayCapacity: MAX_STAY_CAPACITY,
-        stayPricePerDay: STAY_PRICE_PER_DAY
+        stayPricePerDay: STAY_PRICE_PER_DAY,
+        pricing: PRICING // Include pricing in response
     });
 });
 
@@ -574,12 +587,12 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
-        // Calculate amounts
+        // Calculate amounts with UPDATED pricing
         let baseAmount;
         if (institution.trim() === 'Polytechnic') {
-            baseAmount = isIsteMember === 'Yes' ? 300 : 350;
+            baseAmount = isIsteMember === 'Yes' ? PRICING.POLYTECHNIC.ISTE_MEMBER : PRICING.POLYTECHNIC.NON_ISTE_MEMBER;
         } else {
-            baseAmount = isIsteMember === 'Yes' ? 450 : 500;
+            baseAmount = isIsteMember === 'Yes' ? PRICING.ENGINEERING.ISTE_MEMBER : PRICING.ENGINEERING.NON_ISTE_MEMBER;
         }
         
         const stayDays = stayPreference === 'With Stay' ? stayDates.length : 0;
