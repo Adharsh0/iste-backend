@@ -776,7 +776,14 @@ app.post('/api/admin/login', async (req, res) => {
 
 app.get('/api/admin/registrations', authenticateToken, async (req, res) => {
     try {
-        const { status, search, institution, page = 1, limit = 50 } = req.query;
+        const { 
+            status, 
+            search, 
+            institution, 
+            ambassadorCode, 
+            page = 1, 
+            limit = 50 
+        } = req.query;
         
         let query = {};
         
@@ -786,6 +793,13 @@ app.get('/api/admin/registrations', authenticateToken, async (req, res) => {
         
         if (institution && ['Engineering', 'Polytechnic'].includes(institution)) {
             query.institution = institution;
+        }
+        
+        // Handle ambassador code filtering
+        if (ambassadorCode === 'exists') {
+            query.ambassadorCode = { $ne: '' };
+        } else if (ambassadorCode === 'empty') {
+            query.ambassadorCode = '';
         }
         
         if (search && search.trim()) {
@@ -824,6 +838,95 @@ app.get('/api/admin/registrations', authenticateToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to fetch registrations'
+        });
+    }
+});
+
+// NEW: Ambassador Code Statistics Endpoint
+app.get('/api/admin/ambassador-stats', authenticateToken, async (req, res) => {
+    try {
+        const { code } = req.query;
+        
+        if (!code || code.trim().length < 2) {
+            return res.status(400).json({
+                success: false,
+                message: 'Valid ambassador code is required (minimum 2 characters)'
+            });
+        }
+
+        // Find all registrations with this ambassador code (case-insensitive)
+        const registrations = await Registration.find({
+            ambassadorCode: { $regex: new RegExp(`^${code.trim()}$`, 'i') }
+        });
+
+        const total = registrations.length;
+        
+        // Calculate statistics
+        const approved = registrations.filter(r => r.registrationStatus === 'approved').length;
+        const pending = registrations.filter(r => r.registrationStatus === 'pending').length;
+        const rejected = registrations.filter(r => r.registrationStatus === 'rejected').length;
+        
+        // Calculate revenue
+        const totalRevenue = registrations.reduce((sum, reg) => sum + (reg.totalAmount || 0), 0);
+        const averageRevenue = total > 0 ? (totalRevenue / total).toFixed(2) : 0;
+
+        // Additional statistics
+        const withStay = registrations.filter(r => r.stayPreference === 'With Stay').length;
+        const engineering = registrations.filter(r => r.institution === 'Engineering').length;
+        const polytechnic = registrations.filter(r => r.institution === 'Polytechnic').length;
+        
+        // Calculate total stay days and revenue from stay
+        const totalStayDays = registrations.reduce((sum, reg) => sum + (reg.stayDays || 0), 0);
+        const stayRevenue = registrations.reduce((sum, reg) => sum + (reg.stayTotalAmount || 0), 0);
+        const baseRevenue = registrations.reduce((sum, reg) => sum + (reg.baseAmount || 0), 0);
+
+        res.json({
+            success: true,
+            data: {
+                code: code.toUpperCase(),
+                total,
+                approved,
+                pending,
+                rejected,
+                totalRevenue,
+                averageRevenue,
+                withStay,
+                withoutStay: total - withStay,
+                engineering,
+                polytechnic,
+                totalStayDays,
+                stayRevenue,
+                baseRevenue,
+                // Detailed breakdown
+                breakdown: {
+                    byStatus: {
+                        approved,
+                        pending,
+                        rejected
+                    },
+                    byInstitution: {
+                        engineering,
+                        polytechnic
+                    },
+                    byAccommodation: {
+                        withStay,
+                        withoutStay
+                    },
+                    revenueBreakdown: {
+                        totalRevenue,
+                        baseRevenue,
+                        stayRevenue,
+                        averagePerRegistration: parseFloat(averageRevenue)
+                    }
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Ambassador stats error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch ambassador statistics'
         });
     }
 });
@@ -1041,4 +1144,5 @@ app.use((err, req, res, next) => {
 // ==================== START SERVER ====================
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
+
 });
