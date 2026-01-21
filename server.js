@@ -9,18 +9,20 @@ const app = express();
 
 // ==================== CONFIGURATION ====================
 const PORT = process.env.PORT || 5000;
-const MAX_STAY_CAPACITY = 350; // UPDATED: Increased from 250 to 350
+const MAX_STAY_CAPACITY = 350;
 const STAY_PRICE_PER_DAY = 217;
 
-// UPDATED PRICING
+// UPDATED PRICING - Engineering closed
 const PRICING = {
     POLYTECHNIC: {
         ISTE_MEMBER: 250,
-        NON_ISTE_MEMBER: 300
+        NON_ISTE_MEMBER: 300,
+        AVAILABLE: true
     },
     ENGINEERING: {
         ISTE_MEMBER: 450,
-        NON_ISTE_MEMBER: 500
+        NON_ISTE_MEMBER: 500,
+        AVAILABLE: false  // Engineering registration closed
     }
 };
 
@@ -144,7 +146,7 @@ const registrationSchema = new mongoose.Schema({
         default: 0
     },
     
-    // NEW: Ambassador Code (Optional)
+    // Ambassador Code (Optional)
     ambassadorCode: {
         type: String,
         default: '',
@@ -204,7 +206,7 @@ const registrationSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Add indexes for common queries
+// Add indexes
 registrationSchema.index({ registrationStatus: 1, registrationDate: -1 });
 registrationSchema.index({ stayPreference: 1, registrationStatus: 1 });
 registrationSchema.index({ institution: 1, registrationStatus: 1 });
@@ -251,7 +253,6 @@ const migrateExistingDocuments = async () => {
             }
             
             if (!doc.baseAmount) {
-                // Calculate base amount based on UPDATED pricing
                 if (doc.institution === 'Polytechnic') {
                     updates.baseAmount = doc.isIsteMember === 'Yes' ? PRICING.POLYTECHNIC.ISTE_MEMBER : PRICING.POLYTECHNIC.NON_ISTE_MEMBER;
                 } else {
@@ -259,7 +260,6 @@ const migrateExistingDocuments = async () => {
                 }
             }
             
-            // Add default empty string for ambassadorCode if it doesn't exist
             if (doc.ambassadorCode === undefined || doc.ambassadorCode === null) {
                 updates.ambassadorCode = '';
             }
@@ -314,7 +314,12 @@ app.get('/', (req, res) => {
         version: '1.0.0',
         stayCapacity: MAX_STAY_CAPACITY,
         stayPricePerDay: STAY_PRICE_PER_DAY,
-        pricing: PRICING
+        pricing: PRICING,
+        registrationStatus: {
+            engineeringClosed: true,
+            polytechnicOpen: true,
+            notice: 'Engineering registration is now closed. Only Polytechnic registrations are being accepted.'
+        }
     });
 });
 
@@ -324,14 +329,17 @@ app.get('/api/health', (req, res) => {
     res.json({
         success: true,
         status: 'healthy',
-        database: dbStatus
+        database: dbStatus,
+        registrationStatus: {
+            engineeringClosed: true,
+            polytechnicOpen: true
+        }
     });
 });
 
-// GET stay availability - NOW INCLUDES PENDING REGISTRATIONS
+// GET stay availability
 app.get('/api/stay-availability', async (req, res) => {
   try {
-    // Count both pending and approved registrations with stay
     const stayUsersCount = await Registration.countDocuments({
       stayPreference: 'With Stay',
       registrationStatus: { $in: ['pending', 'approved'] }
@@ -359,7 +367,7 @@ app.get('/api/stay-availability', async (req, res) => {
   }
 });
 
-// NEW: Reserve stay endpoint for real-time checking
+// Reserve stay endpoint
 app.post('/api/reserve-stay', async (req, res) => {
   try {
     const { stayDays, action = 'reserve' } = req.body;
@@ -372,7 +380,6 @@ app.post('/api/reserve-stay', async (req, res) => {
     }
     
     if (action === 'reserve') {
-      // Get current stay usage including PENDING registrations
       const stayUsersCount = await Registration.countDocuments({
         stayPreference: 'With Stay',
         registrationStatus: { $in: ['pending', 'approved'] }
@@ -462,7 +469,7 @@ app.get('/api/check-status/:transactionId', async (req, res) => {
 
         const registration = await Registration.findOne({ 
             transactionId: transactionId.trim() 
-        }).select('fullName email registrationStatus registrationDate transactionId stayDates stayDays baseAmount totalAmount ambassadorCode');
+        }).select('fullName email registrationStatus registrationDate transactionId stayDates stayDays baseAmount totalAmount ambassadorCode institution');
 
         if (!registration) {
             return res.status(404).json({
@@ -484,6 +491,7 @@ app.get('/api/check-status/:transactionId', async (req, res) => {
     }
 });
 
+// ==================== MAIN REGISTRATION ENDPOINT ====================
 app.post('/api/register', async (req, res) => {
     try {
         const {
@@ -503,6 +511,19 @@ app.post('/api/register', async (req, res) => {
             totalAmount,
             transactionId
         } = req.body;
+
+        // ==================== IMPORTANT: BLOCK ENGINEERING REGISTRATIONS ====================
+        if (institution && institution.trim() === 'Engineering') {
+            return res.status(400).json({
+                success: false,
+                message: 'Engineering registration is now closed. Only Polytechnic registrations are being accepted.',
+                registrationStatus: {
+                    engineeringClosed: true,
+                    polytechnicOpen: true
+                }
+            });
+        }
+        // =================================================================================
 
         // Validate required fields
         const requiredFields = {
@@ -540,7 +561,6 @@ app.post('/api/register', async (req, res) => {
 
         // Validate stay selection
         if (stayPreference === 'With Stay') {
-            // Check stay capacity including pending registrations
             const stayUsersCount = await Registration.countDocuments({
                 stayPreference: 'With Stay',
                 registrationStatus: { $in: ['pending', 'approved'] }
@@ -553,7 +573,6 @@ app.post('/api/register', async (req, res) => {
                 });
             }
             
-            // Validate stayDates
             if (!Array.isArray(stayDates) || stayDates.length === 0) {
                 return res.status(400).json({
                     success: false,
@@ -561,7 +580,6 @@ app.post('/api/register', async (req, res) => {
                 });
             }
             
-            // Validate each date is Jan 29, 30, or 31 2026
             const validDays = [29, 30, 31];
             const invalidDates = [];
             
@@ -597,7 +615,6 @@ app.post('/api/register', async (req, res) => {
                 });
             }
             
-            // Max 3 days
             if (stayDates.length > 3) {
                 return res.status(400).json({
                     success: false,
@@ -636,12 +653,16 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
-        // Calculate amounts with UPDATED pricing
+        // Calculate amounts - only Polytechnic now
         let baseAmount;
         if (institution.trim() === 'Polytechnic') {
             baseAmount = isIsteMember === 'Yes' ? PRICING.POLYTECHNIC.ISTE_MEMBER : PRICING.POLYTECHNIC.NON_ISTE_MEMBER;
         } else {
-            baseAmount = isIsteMember === 'Yes' ? PRICING.ENGINEERING.ISTE_MEMBER : PRICING.ENGINEERING.NON_ISTE_MEMBER;
+            // This should not happen since we blocked Engineering above, but just in case
+            return res.status(400).json({
+                success: false,
+                message: 'Engineering registration is closed'
+            });
         }
         
         const stayDays = stayPreference === 'With Stay' ? stayDates.length : 0;
@@ -690,10 +711,12 @@ app.post('/api/register', async (req, res) => {
                 registrationId: `ISTE${registration._id.toString().slice(-8).toUpperCase()}`,
                 fullName: registration.fullName,
                 email: registration.email,
+                institution: registration.institution,
                 transactionId: registration.transactionId,
                 totalAmount: registration.totalAmount,
                 registrationStatus: registration.registrationStatus,
-                ambassadorCode: registration.ambassadorCode
+                ambassadorCode: registration.ambassadorCode,
+                notice: 'Engineering registrations are closed. Only Polytechnic registrations are being accepted.'
             }
         });
 
@@ -817,7 +840,11 @@ app.get('/api/admin/registrations', authenticateToken, async (req, res) => {
             total,
             page: parseInt(page),
             totalPages: Math.ceil(total / parseInt(limit)),
-            data: registrations
+            data: registrations,
+            registrationStatus: {
+                engineeringClosed: true,
+                polytechnicOpen: true
+            }
         });
     } catch (error) {
         console.error('Get registrations error:', error);
@@ -878,7 +905,6 @@ app.put('/api/admin/registration/:id/reject', authenticateToken, async (req, res
             });
         }
 
-        // First get the registration to check if it has stay
         const registration = await Registration.findById(id);
         
         if (!registration) {
@@ -888,7 +914,6 @@ app.put('/api/admin/registration/:id/reject', authenticateToken, async (req, res
             });
         }
 
-        // Update the registration
         const updatedRegistration = await Registration.findByIdAndUpdate(
             id,
             {
@@ -899,10 +924,6 @@ app.put('/api/admin/registration/:id/reject', authenticateToken, async (req, res
             },
             { new: true, runValidators: true }
         );
-
-        // Note: Stay spots are automatically "released" when registration status 
-        // changes to rejected because our stay availability query only counts 
-        // pending and approved registrations
 
         res.json({
             success: true,
@@ -922,7 +943,7 @@ app.put('/api/admin/registration/:id/reject', authenticateToken, async (req, res
 
 app.get('/api/admin/stats', authenticateToken, async (req, res) => {
     try {
-        // Get stay availability (includes pending)
+        // Get stay availability
         const stayUsersCount = await Registration.countDocuments({
             stayPreference: 'With Stay',
             registrationStatus: { $in: ['pending', 'approved'] }
@@ -935,7 +956,9 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
             pendingRegistrations,
             approvedRegistrations,
             rejectedRegistrations,
-            totalRevenue
+            totalRevenue,
+            engineeringRegistrations,
+            polytechnicRegistrations
         ] = await Promise.all([
             Registration.countDocuments(),
             Registration.countDocuments({ registrationStatus: 'pending' }),
@@ -944,7 +967,9 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
             Registration.aggregate([
                 { $match: { registrationStatus: 'approved' } },
                 { $group: { _id: null, total: { $sum: "$totalAmount" } } }
-            ])
+            ]),
+            Registration.countDocuments({ institution: 'Engineering' }),
+            Registration.countDocuments({ institution: 'Polytechnic' })
         ]);
 
         const stayStats = await Registration.aggregate([
@@ -984,7 +1009,6 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
             }
         ]);
 
-        // Count registrations with ambassador codes
         const ambassadorCount = await Registration.countDocuments({
             ambassadorCode: { $ne: "" }
         });
@@ -997,9 +1021,19 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
                 approvedRegistrations,
                 rejectedRegistrations,
                 totalRevenue: totalRevenue[0]?.total || 0,
+                institutionStats: {
+                    engineering: {
+                        total: engineeringRegistrations,
+                        closed: true
+                    },
+                    polytechnic: {
+                        total: polytechnicRegistrations,
+                        open: true
+                    }
+                },
                 stayStats: {
                     capacity: MAX_STAY_CAPACITY,
-                    used: stayUsersCount, // Now includes pending
+                    used: stayUsersCount,
                     remaining: remainingStay,
                     pricePerDay: STAY_PRICE_PER_DAY
                 },
@@ -1007,6 +1041,11 @@ app.get('/api/admin/stats', authenticateToken, async (req, res) => {
                 ambassadorStats: {
                     totalWithCode: ambassadorCount,
                     topCodes: ambassadorStats
+                },
+                registrationStatus: {
+                    engineeringClosed: true,
+                    polytechnicOpen: true,
+                    notice: 'Engineering registration is closed. Only Polytechnic registrations are being accepted.'
                 },
                 lastUpdated: new Date().toISOString()
             }
@@ -1041,4 +1080,6 @@ app.use((err, req, res, next) => {
 // ==================== START SERVER ====================
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📢 Engineering registration: CLOSED`);
+    console.log(`📢 Polytechnic registration: OPEN`);
 });
